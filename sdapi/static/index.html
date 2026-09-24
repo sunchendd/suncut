@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>短剧流水线 · 自动化工作台</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">🎬 短剧流水线 <span class="sub">自动化工作台</span></div>
+  <div class="top-actions">
+    <a href="#/jobs" class="navlink">任务</a>
+    <a href="#/pool" class="navlink">演员库</a>
+    <a href="#/system" class="navlink">系统</a>
+    <span id="ws-dot" class="ws-dot off" title="WebSocket 连接状态"></span>
+  </div>
+</header>
+<div id="layout">
+  <nav id="sidenav">
+    <a href="#/dashboard" data-nav="dashboard">🏠 仪表盘</a>
+    <div class="nav-sep"></div>
+    <div id="nav-projects" class="nav-group"></div>
+    <div class="nav-sep"></div>
+    <a href="#/jobs" data-nav="jobs">⚙️ 任务中心</a>
+    <a href="#/pool" data-nav="pool">🎭 演员库</a>
+    <a href="#/system" data-nav="system">🩺 系统</a>
+  </nav>
+  <main id="view"></main>
+</div>
+<div id="toasts"></div>
+<div id="modal-root"></div>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
