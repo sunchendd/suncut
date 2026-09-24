@@ -1,6 +1,6 @@
 // screenwriter.js —— ③ 编剧 agent 面板:剧本 + 自评四维 + 旁白SRT
 import { mediaUrl } from '../api.js';
-import { el, scoreBars } from '../ui.js';
+import { el, modal, toast, scoreBars } from '../ui.js';
 
 const CRIT = { hook: '开场钩子', arc: '情绪弧线', narration: '旁白质量', visual: '画面感' };
 
@@ -16,6 +16,14 @@ export default function render(ctx) {
         'glm-5.3 出稿 → flash 自评(hook/arc/narration/visual 四维,任一<7 带反馈重写,≤2轮);硬约束前置:5.04s/镜、动作≤3节点、旁白≤25字、禁手部特写/正面说话。')),
     el('div', { class: 'row' },
       (d.stages.script ? el('a', { class: 'btn ghost sm', href: mediaUrl(`${d.project_dir}/narration.srt`, true) }, '⬇ 旁白字幕 SRT') : null),
+      (d.stages.script ? el('button', { class: 'btn ghost sm', onclick: async () => {
+        try {
+          const r = await fetch(mediaUrl(`${d.project_dir}/narration.srt`));
+          const t = await r.text();
+          modal({ title: '旁白字幕草稿(narration.srt · 剪映可导入)', wide: true,
+            body: el('pre', { class: 'box', style: { maxHeight: '60vh' } }, t.slice(0, 20000) || '(空)') });
+        } catch (e) { toast(e.message, 'bad'); }
+      } }, '👁 预览 SRT') : null),
       el('button', { class: 'btn sm', disabled: !!d.busy,
         onclick: () => run('script', { force: true }, '重写剧本(自评-修订闭环会重新跑;分镜及之后需 force 重跑)。') }, '↻ 重写剧本'))));
 

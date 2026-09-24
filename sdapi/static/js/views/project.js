@@ -57,7 +57,10 @@ export default async function render(root, name) {
         const r = await api.post(`/api/projects/${name}/run`, { op, ...extra });
         toast(`🚀 已提交:${r.job.title}`, 'ok');
         refresh();
-      } catch (e) { toast(`提交失败:${e.message}`, 'bad', 6000); }
+      } catch (e) {
+        if (e.status === 409) toast(`⏳ ${e.message} —— 顶部任务条可看实时进度;完成后自动解锁`, 'warn', 8000);
+        else toast(`提交失败:${e.message}`, 'bad', 6000);
+      }
     };
     if (confirmText) confirmModal(TABS.find(t => t[1] === activeTab)?.[2] || op, confirmText, go, okLabel);
     else go();

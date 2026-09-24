@@ -20,7 +20,11 @@ function dispatch(msg) {
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/api/ws`);
-  ws.onopen = () => { retry = 0; statusFn?.(true); };
+  ws.onopen = () => {
+    const wasDown = retry > 0;
+    retry = 0; statusFn?.(true);
+    if (wasDown) dispatch({ type: 'resync' });   // 断线重连后通知各视图重拉状态
+  };
   ws.onmessage = (ev) => {
     try { dispatch(JSON.parse(ev.data)); } catch { /* 忽略坏帧 */ }
   };

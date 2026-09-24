@@ -14,8 +14,15 @@ export default function render(ctx) {
       el('p', { class: 'page-sub' },
         'glm-4.5v 双次评审取均值(单次噪声±4),三维分≥7 判过;分数历史只升不降;人工保留否决权。')),
     el('div', { class: 'row' },
-      rv.total ? el('span', { class: `chip ${rv.passed === rv.total ? 'ok' : 'warn'}` },
+      d.review_stale ? el('span', { class: 'chip bad', title: '重拍/重生成后旧审片已作废,请重新审片' }, '⚠ 重拍后待复审') : null,
+      rv.total ? el('span', { class: `chip ${!d.review_stale && rv.passed === rv.total ? 'ok' : 'warn'}` },
         `${rv.passed}/${rv.total} 过片`) : null,
+      (rv.results || []).some(r => ['retake', 'fail'].includes(r.verdict)
+          && !((d.human || {})[r.case] || {}).approved)
+        ? el('button', { class: 'btn primary sm', disabled: !!d.busy,
+            onclick: () => run('retake_failed', {},
+              '按审片建议批量重拍全部未过镜(人工翻案的不算),逐镜外科手术改 dd+换 seed;完成后需重新审片。', '批量重拍') },
+          '🔁 一键重拍未过镜') : null,
       el('button', { class: 'btn sm', disabled: !!d.busy,
         onclick: () => run('review', { force: true }, '强制重新审片(重抽帧+双次VLM评分,19s/镜)。') }, '↻ 重新审片'))));
 

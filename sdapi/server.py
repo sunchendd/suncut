@@ -48,6 +48,15 @@ async def _busy(request, exc):
 
 
 # ================================================================ 读接口
+@app.get("/api/health")
+def api_health():
+    import time as _t
+    return {"ok": True, "name": "suncut-sdapi", "version": app.version,
+            "now": _t.strftime("%F %T"),
+            "active_jobs": len([j for j in manager.list() if j.status in ("queued", "running", "awaiting")]),
+            "history_jobs": len(manager.list())}
+
+
 @app.get("/api/overview")
 def api_overview():
     return detail.overview()
@@ -130,7 +139,7 @@ class RunBody(BaseModel):
 
 
 PROJECT_OPS = {"cast", "materials", "script", "storyboard", "generate",
-               "review", "deliver", "master", "retake", "regen",
+               "review", "deliver", "master", "retake", "retake_failed", "regen",
                "produce", "pipeline"}
 
 
@@ -175,6 +184,106 @@ def api_doctor(b: DoctorBody = None):
     body = b or DoctorBody()
     fn, gpu, tail = build_op("doctor", {"llm": body.llm})
     job = manager.submit("doctor", "环境预检" + ("(含LLM实测)" if body.llm else ""), fn)
+    return {"job_id": job.id, "job": job.dto()}
+
+
+# ================================================================ 签约新演员(候选区/试镜/入库)
+class CardsBody(BaseModel):
+    requirement: str
+    count: int = 3
+
+
+@app.post("/api/audition/cards")
+def api_audition_cards(b: CardsBody):
+    """招聘要求 → 人设卡[](秒级,零 GPU;不落盘,前端可编辑后再生成)."""
+    from sd import audition as A
+    if not b.requirement.strip():
+        raise HTTPException(422, "招聘要求不能为空")
+    try:
+        cards = A.make_cards(b.requirement, max(1, min(b.count, 8)))
+    except Exception as e:
+        raise HTTPException(502, f"人设卡生成失败: {e}")
+    return {"cards": cards}
+
+
+class AuditionGenerateBody(BaseModel):
+    cards: list[dict]
+
+
+@app.post("/api/audition/generate")
+def api_audition_generate(b: AuditionGenerateBody):
+    if not b.cards:
+        raise HTTPException(422, "cards 为空")
+    fn, gpu, tail = build_op("audition.generate", {"cards": b.cards})
+    job = manager.submit("audition.generate",
+                         f"生成试镜照 ×{len(b.cards)}", fn, gpu=gpu, tail_gen=tail)
+    return {"job_id": job.id, "job": job.dto()}
+
+
+@app.get("/api/audition")
+def api_audition_list():
+    from sd import audition as A
+    return {"candidates": A.list_candidates()}
+
+
+def _audition_name(name: str):
+    """候选名白名单校验(防路径穿越:sign 会移动目录,必须严格)."""
+    import re as _re
+    if not _re.fullmatch(r"[\w\u4e00-\u9fff-]{1,24}", name):
+        raise HTTPException(422, "非法候选名")
+    return name
+
+
+class SignBody(BaseModel):
+    name_override: str | None = None
+
+
+@app.post("/api/audition/{name}/sign")
+def api_audition_sign(name: str, b: SignBody = None):
+    _audition_name(name)
+    ov = (b or SignBody()).name_override
+    if ov:
+        _audition_name(ov)
+    fn, gpu, tail = build_op("audition.sign",
+                             {"name": name, "name_override": ov})
+    job = manager.submit("audition.sign", f"签约入库 · {name}", fn, gpu=gpu, tail_gen=tail)
+    return {"job_id": job.id, "job": job.dto()}
+
+
+@app.post("/api/audition/{name}/reroll")
+def api_audition_reroll(name: str):
+    _audition_name(name)
+    fn, gpu, tail = build_op("audition.reroll", {"name": name})
+    job = manager.submit("audition.reroll", f"重掷试镜照 · {name}", fn, gpu=gpu, tail_gen=tail)
+    return {"job_id": job.id, "job": job.dto()}
+
+
+@app.post("/api/audition/{name}/discard")
+def api_audition_discard(name: str):
+    _audition_name(name)
+    from sd import audition as A
+    try:
+        A.discard(name)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    bus.publish("project", name=name)
+    return {"ok": True}
+
+
+class BatchBody(BaseModel):
+    requirement: str = "多样化配角"
+    count: int = 5
+    direct_sign: bool = True
+
+
+@app.post("/api/audition/batch")
+def api_audition_batch(b: BatchBody):
+    fn, gpu, tail = build_op("audition.batch",
+                             {"requirement": b.requirement, "count": max(1, min(b.count, 10)),
+                              "direct_sign": b.direct_sign})
+    n = max(1, min(b.count, 10))
+    job = manager.submit("audition.batch",
+                         f"批量签约{'入库' if b.direct_sign else '试镜'} ×{n}", fn, gpu=gpu, tail_gen=tail)
     return {"job_id": job.id, "job": job.dto()}
 
 
@@ -322,7 +431,7 @@ async def api_ws(ws: WebSocket):
     bus.connect(ws)
     try:
         await ws.send_text(json.dumps(
-            {"type": "hello", "jobs": [j.dto() for j in manager.list()[-30:]],
+            {"type": "hello", "jobs": [j.dto() for j in manager.list()[:30]],
              "t": time.strftime("%F %T")}, ensure_ascii=False))
         while True:
             msg = await ws.receive_text()
@@ -341,5 +450,14 @@ async def index():
                         headers={"Cache-Control": "no-store"})
 
 
-app.mount("/static", StaticFiles(directory=str(svc_config.STATIC_DIR)),
+class NoCacheStaticFiles(StaticFiles):
+    """改完即生效(showvi 同款):本地工作台不做静态缓存,杜绝浏览器旧 JS."""
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+
+app.mount("/static", NoCacheStaticFiles(directory=str(svc_config.STATIC_DIR)),
           name="static")

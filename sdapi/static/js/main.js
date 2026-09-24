@@ -63,6 +63,10 @@ async function refreshSidenav() {
 }
 
 // ---------------- 全局任务事件 ----------------
+bus.on('resync', () => {          // WS 断线重连后:全量重拉,防止漏事件
+  refreshSidenav();
+  if (current?.refresh) current.refresh();
+});
 bus.on('job', (m) => {
   const j = m.job;
   const prev = store.jobs.get(j.id);

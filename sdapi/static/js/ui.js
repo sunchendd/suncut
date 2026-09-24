@@ -32,10 +32,10 @@ export function modal({ title, body, actions = [], wide = false }) {
     el('div', { class: 'modal', style: wide ? { width: 'min(980px, 96vw)' } : {} },
       el('div', { class: 'modal-head' }, el('h3', {}, title), el('span', { class: 'x', onclick: close }, '×')),
       el('div', { class: 'modal-body' }, body),
-      actions.length ? el('div', { class: 'modal-foot' },
+      el('div', { class: 'modal-foot' },   // 恒创建:多步弹窗要在 foot 里换按钮
         ...actions.map(a => el('button', {
           class: `btn ${a.kind || ''}`, onclick: () => a.onclick?.(close),
-        }, a.label))) : null));
+        }, a.label)))));
   root.append(back);
   return { close, back };
 }

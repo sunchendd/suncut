@@ -51,8 +51,21 @@ def overview():
                     manager.active_of_project(name).dto(),
         })
     out.sort(key=lambda x: x.get("updated") or "", reverse=True)
+    # 演员库/候选区统计(扫目录,轻量)
+    actors_ready = actors_total = 0
+    try:
+        from sd import pool as sd_pool
+        chars = sd_pool.scan()
+        actors_ready, actors_total = len(chars), len(sd_pool.scan_all())
+    except Exception:
+        pass
+    from sd.audition import CANDIDATES
+    candidates = (len([d for d in CANDIDATES.iterdir() if d.is_dir()])
+                  if CANDIDATES.exists() else 0)
     return {"projects": out,
-            "jobs": [j.dto() for j in reversed(manager.list()[-15:])]}
+            "jobs": [j.dto() for j in manager.list()[:15]],
+            "actors": {"ready": actors_ready, "total": actors_total},
+            "candidates": candidates}
 
 
 def project_detail(name):
@@ -150,6 +163,8 @@ def project_detail(name):
             "materials": proj.load_stage("materials") or {},
             "script": script, "storyboard": sb, "generate": generate,
             "review": review, "human": human,
+            "review_stale": ("review" not in (state.get("stages") or {})
+                             and bool(review.get("results"))),
             "cases": cases, "deliverables": deliverables,
             "picks": _read_json(proj.path / "picks.json") or [],
             "gen_logs": gen_logs, "metrics_summary": metrics_summary,

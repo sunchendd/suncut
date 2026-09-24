@@ -87,7 +87,12 @@ export default async function render(root) {
   root.append(
     el('div', { class: 'spread' },
       el('div', {}, el('h1', {}, '仪表盘'), el('p', { class: 'page-sub' }, '一句话梗概 → 竖版短剧:七个 agent 分工 + 本地出图出视频,人工只留质控位')),
-      el('button', { class: 'btn primary', onclick: newProjectModal }, '＋ 新建项目')),
+      el('div', { class: 'row' },
+        data.actors ? el('a', { class: 'chip', href: '#/pool', style: { textDecoration: 'none' } },
+          `🎭 演员 ${data.actors.ready}/${data.actors.total} 可开拍`) : null,
+        data.candidates ? el('a', { class: 'chip warn', href: '#/pool', style: { textDecoration: 'none' } },
+          `⏳ 候选区 ${data.candidates} 人试镜中`) : null,
+        el('button', { class: 'btn primary', onclick: newProjectModal }, '＋ 新建项目'))),
     list);
 
   const off = bus.on('job', () => {

@@ -128,3 +128,29 @@
 | ⑤ 导演 | GET detail.cases/gen_logs、POST run{op:generate/retake/regen} | director.shoot/retake、regen.run |
 | ⑥ 审片 | GET detail.cases(review/frames)、POST run{op:review}、POST review/human | reviewer.review、has_passing_take |
 | ⑦ 制片 | POST run{op:deliver/master/produce/pipeline}、GET detail.picks/deliverables/metrics | producer.deliver/deliver_master/produce、report.*、Metrics |
+
+---
+
+## 附:C28 起工作台新增能力(2026-09-24 下午迭代)
+
+### 招聘 agent 扩展 —— 签约新演员(演员库页)
+
+| 功能 | 交互 | 代价 |
+|---|---|---|
+| ＋ 签约主演 | 一句招聘要求 → agent 优化为 3 张**可编辑人设卡** → 试镜照(候选区) → 重掷/回炉/签约入库 | 卡片秒级(LLM);试镜照 ~4min/人;签约全链 ~20-30min/人 |
+| ＋ 签约群演 | 数量+气质方向 → 默认直接全套入库(挂机);也可先试镜后勾选 | ~13-15min/人 |
+
+机制:**候选区**(`工坊/候选/`,pool.scan 不扫、对招聘 agent 不可见);签约=三视图(v4 模板壳+VLM 自检)→裁正/侧身→3种子特写选优→搬入 `素材/角色X_名字`(字母自动顺延)。断点续跑:三视图存在即跳过;同目录孤儿 GPU 子进程自动等待。
+
+### 审片 agent 扩展 —— 人工标记进入判定回路
+
+- 「人工通过」= VLM 未过镜的**翻案**(分步流水线的审片门不再计为失败);
+- 「否决并重拍」= 过镜镜**否决**(计入审片门失败清单,引导带建议重拍);
+- 新增「🔁 一键重拍未过镜」:按审片建议批量外科手术重拍(人工翻案的不算),完成后提示复审。
+
+### 工作台全局
+
+- 任务历史落盘 `jobs.jsonl`(重启可查,含日志尾部);
+- WS 断线自动重连并触发全量重同步(resync);
+- `GET /api/health` 健康检查;409「项目忙」toast 带进度指引;
+- 编剧面板新增「👁 预览 SRT」。

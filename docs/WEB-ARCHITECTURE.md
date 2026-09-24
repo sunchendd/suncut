@@ -140,3 +140,14 @@ shortdrama/scripts/sdapi-serve.sh
 ```
 
 服务日志 `/tmp/sdapi.log`;强制 **workers=1**(进程内任务调度语义,勿加)。
+
+---
+
+## 附:C28 起新增(2026-09-24 下午迭代)
+
+- **签约服务**(sd/audition.py + /api/audition*):候选区(工坊/候选,pool 不可见)→ 试镜照 → 全链入库;
+  三视图生成走 v4 写实系模板壳 + VLM 自检 + 断点续跑(文件存在即跳过)+ 孤儿 GPU 进程等待。
+- **任务持久化**:终态任务追加 `jobs.jsonl`(dto+日志尾60行),重启后并入任务中心(只读)。
+- **审片判定回路**:review/human.json 的人工通过=翻案、否决=计入分步流水线审片门失败清单。
+- **新增 op**:retake_failed(批量重拍未过镜)、audition.generate/reroll/sign/batch。
+- **健壮性**:GET /api/health;WS resync(重连后全量重拉);409 指引;jobs 列表统一按时间倒序。

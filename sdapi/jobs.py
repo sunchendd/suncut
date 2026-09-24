@@ -6,6 +6,7 @@
    共用一把全局 GPU 锁,物理上不可能并行占卡;
 3. producer.produce 会 raise SystemExit → 统一按 BaseException 捕获归类.
 """
+import json
 import threading
 import time
 import traceback
@@ -162,23 +163,70 @@ class GenLogTailer(threading.Thread):
         self._stop.set()
 
 
+class HistJob:
+    """重启前已终态的历史任务(只读,从 jobs.jsonl 恢复;不支持 resume/cancel)."""
+
+    def __init__(self, d):
+        self.__dict__.update({k: v for k, v in d.items() if k != "log"})
+        self._hist_log = d.get("log") or []
+
+    def dto(self):
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+
+    def log_lines(self, tail=None):
+        return self._hist_log[-tail:] if tail else self._hist_log
+
+
 class JobManager:
     def __init__(self):
-        self.jobs = {}                       # id -> Job(进程内,重启即清;产物在磁盘)
+        self.jobs = {}                       # id -> Job(进程内活跃)
         self._project_running = {}           # name -> job_id
         self._proj_lock = threading.Lock()
         self.gpu_lock = threading.RLock()    # 全局单卡锁
         self._order = []
+        self._hist = {}                      # id -> HistJob(jobs.jsonl 恢复)
+        self._hist_file = Path(sd_config.FRAMEWORK_ROOT) / "jobs.jsonl"
+        self._load_history()
+
+    def _load_history(self):
+        if not self._hist_file.exists():
+            return
+        try:
+            for line in self._hist_file.read_text().splitlines()[-300:]:
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(d, dict) and d.get("id"):
+                    self._hist[d["id"]] = HistJob(d)
+        except Exception:
+            pass
+
+    def _persist(self, job):
+        """终态任务追加落盘(doit with log tail),重启后可查历史;超 2000 行轮转留尾 500."""
+        try:
+            d = job.dto()
+            d["log"] = job.log_lines(60)
+            if self._hist_file.exists():
+                n = sum(1 for _ in open(self._hist_file))
+                if n > 2000:
+                    lines = self._hist_file.read_text().splitlines()[-500:]
+                    self._hist_file.write_text("\n".join(lines) + "\n")
+            with open(self._hist_file, "a") as f:
+                f.write(json.dumps(d, ensure_ascii=False, default=str) + "\n")
+            self._hist[job.id] = HistJob(d)
+        except Exception:
+            pass
 
     # ---------- 查询 ----------
     def get(self, jid):
-        return self.jobs.get(jid)
+        return self.jobs.get(jid) or self._hist.get(jid)
 
     def list(self, project=None):
-        js = [self.jobs[i] for i in self._order]
+        js = [self.jobs[i] for i in self._order] + list(self._hist.values())
         if project:
             js = [j for j in js if j.project == project]
-        return js
+        return sorted(js, key=lambda j: j.created_at, reverse=True)
 
     def active_of_project(self, name):
         jid = self._project_running.get(name)
@@ -211,6 +259,11 @@ class JobManager:
             tailer.start()
         try:
             if job.gpu:
+                if self.gpu_lock.acquire(blocking=False):
+                    self.gpu_lock.release()
+                else:
+                    job._set(meta={**job.meta, "stage": "等待GPU",
+                                   "stage_label": "等待 GPU(前序任务占用)"})
                 with self.gpu_lock:
                     job.result = fn(job)
             else:
@@ -238,6 +291,8 @@ class JobManager:
             with self._proj_lock:
                 if job.project and self._project_running.get(job.project) == job.id:
                     self._project_running.pop(job.project, None)
+            if job.status in TERMINAL:
+                self._persist(job)
             job._set()
 
 

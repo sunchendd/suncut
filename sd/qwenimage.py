@@ -36,6 +36,7 @@ def crop_views(char_dir: Path, out_dir: Path):
     src = char_dir / "1_设定图/三视图.png"
     if not src.exists():
         raise FileNotFoundError(f"没有三视图: {src}")
+    out_dir.mkdir(parents=True, exist_ok=True)   # 裁切输出目录不预建会被 ffmpeg 拒写
     import json
     probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
                             "-show_entries", "stream=width,height", "-of", "json", str(src)],
@@ -78,28 +79,57 @@ def gen_closeup(char: dict, out_dir: Path, steps=25, width=1024, height=1280,
     return dst
 
 
-def _gen_one(prompt, seed, dst, steps, width, height):
+def _gen_one(prompt, seed, dst, steps, width, height, neg=None, timeout=1800):
     script = f"""
-import os
+import os, time, sys
 os.environ.setdefault("DIFFUSERS_ATTN_BACKEND", "_native_cudnn")
+_t0 = time.time()
+def _say(msg):
+    try: print(msg, flush=True)
+    except (BrokenPipeError, OSError):   # 父进程(服务)重启后管道断,静默继续跑完存盘
+        pass
+def _cb(p, i, t, kw):
+    if i % 5 == 0 or i == {steps} - 1:
+        _say(f"STEP {{i + 1}}/{{{steps}}} {{time.time() - _t0:.0f}}s")
+    return kw   # diffusers 要求回调返回 callback_kwargs
 import torch
 torch.set_float32_matmul_precision("high")
 from diffusers import QwenImage21Pipeline
 pipe = QwenImage21Pipeline.from_pretrained(r"{MODEL}", torch_dtype=torch.bfloat16).to("cuda")
 try: pipe.vae.enable_tiling()
 except Exception: pass
-out = pipe(prompt={prompt!r}, negative_prompt={CLOSEUP_NEG!r}, true_cfg_scale=4.0,
-           height={height}, width={width}, num_inference_steps={steps}, generator=torch.Generator("cuda").manual_seed({seed}))
+try:
+    pipe.set_progress_bar_config(disable=True)
+except Exception: pass
+kw = dict(callback_on_step_end=_cb)
+out = pipe(prompt={prompt!r}, negative_prompt={neg or CLOSEUP_NEG!r}, true_cfg_scale=4.0,
+           height={height}, width={width}, num_inference_steps={steps},
+           generator=torch.Generator("cuda").manual_seed({seed}), **kw)
 img = out.images[0] if hasattr(out, "images") else out[0][0]
 img.save(r"{dst}")
-print("SAVED", r"{dst}")
+_say("SAVED " + r"{dst}" + f" {{time.time() - _t0:.0f}}s")
 """
     tmp = dst.with_suffix(".py")
     tmp.write_text(script)
-    r = subprocess.run([str(VENV_PY), str(tmp)], capture_output=True, text=True, timeout=1800)
+    errfile = dst.with_suffix(".stderr")
+    with open(errfile, "w") as ef:
+        proc = subprocess.Popen([str(VENV_PY), str(tmp)], stdout=subprocess.PIPE,
+                                stderr=ef, text=True)
+        import time as _t
+        deadline = _t.time() + timeout
+        try:
+            for line in proc.stdout:
+                print(f"[imagegen] {line.rstrip()}")
+                if _t.time() > deadline:
+                    proc.kill()
+                    raise RuntimeError("图像生成超时被杀")
+        finally:
+            proc.wait()
     tmp.unlink(missing_ok=True)
-    if r.returncode != 0 or not dst.exists():
-        raise RuntimeError(f"Qwen 特写生成失败: {r.stderr[-500:]} {r.stdout[-300:]}")
+    err = errfile.read_text() if errfile.exists() else ""
+    errfile.unlink(missing_ok=True)
+    if proc.returncode != 0 or not dst.exists():
+        raise RuntimeError(f"Qwen 图像生成失败: rc={proc.returncode} stderr={err[-800:]}")
     return dst
 
 

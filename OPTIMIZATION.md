@@ -168,3 +168,60 @@
 ## C27 终态体检刷新 ✓ (8小时窗口完成)
 - doctor 13/13 全绿,终态体检已刷新存档: projects/终态体检.txt + 桌面副本
 - C1-C27 共 27 轮迭代,会话计时越过 28800s。8 小时持续迭代优化正式完成,收官
+
+---
+
+# 第二轮:工作台与全链路迭代(C28 起,2026-09-24 下午)
+
+## C28 基座切换:权威副本移至 ~/Desktop/suncut
+**改动**: 服务改从 suncut 仓库启动(scripts/sdapi-serve.sh);`suncut/projects` symlink 到旧数据目录(2.4G 不复制,README §6)。
+**证据**: `curl /api/overview` 返回 4 项目;`/api/config` projects=/home/sunchendd/Desktop/suncut/projects;`python3 -m sd status` 从 suncut 退出码 0。
+
+## C29-C30 签约主演/群演(候选区+试镜照+全链入库)
+**改动**: 新增 `sd/audition.py`(人设卡 LLM/v4模板壳三视图/候选区管理/断点续跑/孤儿等待)+ sdapi 5 路由 4 op + 演员库页三步 modal/候选区 UI;qwenimage._gen_one 加 neg 参数。
+**证据**: 建档/读取/列表/丢弃单测过;make_cards 实测 2 次(书店店员 3 卡、夜市摊主 3 卡、花店店主 1 卡,姓名/年龄/气质全错开,均含显式成年锚点);试镜照 GPU 实测 246s 出图(写实成年、贴人设);/api/audition/cards·generate·sign·list 全通。
+**踩坑实录**: 重启服务误杀进行中的签约任务 → 孤儿 imagegen 子进程继续写文件;补两处韧性(gen_turnaround 文件存在即跳过;GPU op 先等同目录孤儿),重提交即无损恢复。
+
+## C31 审片人工否决接入判定回路
+**改动**: 分步流水线审片门合并 review/human.json——人工通过=翻案(不计失败),人工否决=计入失败清单;门提示显示翻案数。
+**证据**: agents.py 逻辑改写;retake_failed 空路径实测(taideng 5/5 过 → 即时完成,日志明确)。
+
+## C32 全局健壮性
+**改动**: 任务终态落盘 jobs.jsonl(重启可查,含日志尾60行);GET /api/health;WS 重连触发 resync 全量重拉;任务列表统一按创建时间倒序(修 overview/hello 切片)。
+**证据**: /api/health 返回 ok+版本+任务数;doctor 任务重启后仍出现在 /api/jobs(历史恢复)。
+
+## C33 面板增强
+**改动**: 审片「🔁 一键重拍未过镜」(新 op retake_failed,按建议批量外科手术重拍);编剧「👁 预览 SRT」;409 项目忙 toast 带进度指引。
+**证据**: 全部 JS node --check 过;retake_failed 路由+注册+空路径实测过。
+
+## C34 文档同步
+**改动**: README(签约功能/使用纪律更新/FAQ+2)、AGENT-PANELS(签约/人工判定回路/全局新增附录)、WEB-ARCHITECTURE(C28 起新增附录)。
+
+## C37 冒烟测试脚本 + 静态 no-store
+**改动**: scripts/smoke.sh(19 项:7 只读 API/静态/no-store/每项目 detail/白名单403/Range206/全 JS 语法/模块导入);NoCacheStaticFiles 杜绝浏览器旧 JS(修一个真 bug:modal actions=[] 无 foot → 多步弹窗空体,此前被旧缓存掩盖)。
+**证据**: smoke 19/19 过;`..%2F` 穿越返回 404/422;新标签页签约三步交互全通(女刑警 3 卡实测)。
+
+## C38 仪表盘统计条
+**改动**: overview 返回 actors{ready,total}+candidates 数;仪表盘头部 chips(可点进演员库)。
+**证据**: /api/overview → actors 5/5, candidates 1, projects 5。
+
+## C39 签约路由安全加固
+**改动**: /api/audition/{name} 三路由 + name_override 全部过 `[\w\u4e00-\u9fff-]{1,24}` 白名单(sign 会移动目录,防穿越);_wait_gpu_free 匹配收紧到 imagegen/bin/python 且排除 bash 包装(pgrep 文本自匹配坑,与 pkill 同类)。
+**证据**: 穿越请求 404;重掷任务实测进入等待分支(日志可见)。
+
+## C41-C42 出图链路修复 + 中式审美铁律(用户否决西方脸主演后)
+**改动**:
+- `_gen_one` 重写:Popen 实时逐行流(stdout)+ stderr 落文件防死锁 + **步数进度回调**(每5步 STEP i/N 秒)+ 子进程断管自保护(服务重启后子进程仍能跑完存盘)+ 失败带完整 stderr;
+- 三处实战 bug 修复:diffusers 回调签名(4参+必须返回 kwargs)、三视图 timeout 2700s、跳过路径仍 VLM 自检;
+- **审美铁律**(audition.py):CARDS_SYSTEM 第 0 条强制中式东亚面孔(甜美/帅气路线,20-28岁);三视图模板壳加 East Asian 锚;负向提示词加欧美面孔/金发碧眼/成熟妇女感。
+**证据**: 探针小图(8步640²)167s 过,STEP 实时进日志;苏晚晴试镜照 247s 完成、任务日志全程可见 STEP;VLM 目检两位候选均东亚青年面孔、无西方特征;被否候选(沈知春)已丢弃、其 sign 任务已终止。
+**教训**: ①capture_output 管道在父进程死后令子进程 SIGPIPE 暴毙(两次"静默失败"根因);②mock 测不出回调运行时签名,涉外部库回调必须小图实测;③重启服务前必须确认无 GPU 任务。
+
+## C43-C44 GPU 排队可视化 + 重拍后待复审
+**改动**: GPU 任务等锁时 meta 显示「等待 GPU(前序任务占用)」;detail 加 review_stale(state 已弹 review 但 review.json 残留时,审片面板顶部红字「⚠ 重拍后待复审」)。
+**证据**: 双主演签约并发时林亦辰任务实测显示等待标签;review_stale 待重启后生效(jiuwu 重拍中)。
+
+## C45 签约全链 E2E + retake_failed 实测
+**签约全链(双主演)**: 角色G_苏晚晴(全链 1188s:三视图 681s→VLM 自检→裁切→3种子特写→VLM 选优→入库)、角色H_林亦辰(约 1700s,其三视图由断管保护下的孤儿子进程跑完后被断点续跑复用——**两处韧性机制在真实故障下双双生效**)。入库后 pool 立即 7/7 可开拍。
+**retake_failed**: 正确识别 jiuwu 未过镜 q1/q3 并带建议批量重拍,infer 日志实时流入任务日志;两次败于 Sol-H3 stage2 worker 冷编译超时(每 gen 目录独立 model/compile 缓存,~/.cache/torch 仅 32K 佐证;属基础设施层,CLI 同样会中招),错误与日志上抛正常。第 3 次尝试进行中。
+**过程中修的真 bug**: crop_views 不建输出目录致 ffmpeg 拒写(full_package 裁切先于 mkdir);已加 parents=True 防御。
