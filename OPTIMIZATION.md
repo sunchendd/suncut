@@ -225,3 +225,8 @@
 **签约全链(双主演)**: 角色G_苏晚晴(全链 1188s:三视图 681s→VLM 自检→裁切→3种子特写→VLM 选优→入库)、角色H_林亦辰(约 1700s,其三视图由断管保护下的孤儿子进程跑完后被断点续跑复用——**两处韧性机制在真实故障下双双生效**)。入库后 pool 立即 7/7 可开拍。
 **retake_failed**: 正确识别 jiuwu 未过镜 q1/q3 并带建议批量重拍,infer 日志实时流入任务日志;两次败于 Sol-H3 stage2 worker 冷编译超时(每 gen 目录独立 model/compile 缓存,~/.cache/torch 仅 32K 佐证;属基础设施层,CLI 同样会中招),错误与日志上抛正常。第 3 次尝试进行中。
 **过程中修的真 bug**: crop_views 不建输出目录致 ffmpeg 拒写(full_package 裁切先于 mkdir);已加 parents=True 防御。
+
+## C46 收官终验
+**证据**: 重启加载全部补丁后 smoke.sh 19/19;review_stale 字段上线(jiuwu 语义正确:重拍未成功→false);历史跨重启 17 条(含 7 条签约);/api/health 正常;最终 commit 含全部第二轮改动。
+**retake_failed 终局**: 3 次尝试均败于 Sol-H3 stage2 worker 冷编译超时(19:20-20:56 第三次爬 95 分钟仍未就绪;每 gen 目录独立 compile 缓存,不跨目录累积)。链路本身(识别/改写/调infer/日志流/错误上抛)验证通过;热缓存环境下(~430s/条,今早实测)即为正常路径。后续可选改造:把 worker work_dir/compile 指到共享目录复用编译缓存(动 Sol-H3 runtime,另开一轮)。
+**浏览器自动化面板本轮后半不可用(用户侧已关):此前已完成 dashboard/项目/审片/演员库/签约三步交互的可视化验证;剩余新字段走 API 验证 + 验收清单人工走查路径(docs/ACCEPTANCE.md §二)。
