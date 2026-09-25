@@ -76,7 +76,7 @@ def main(names):
                          f"顺序对应镜中 Subject 编号)," if ref_imgs else "本镜是无人物空镜,")
             dd = next((r["dd"] for r in rows if r["case_id"] == case), "")
             text = reviewer.PROMPT_TMPL.format(
-                refs_desc=refs_desc, w=config.VIDEO_W, h=config.VIDEO_H, dd=dd)
+                refs_desc=refs_desc, orient_note=reviewer.orient_note_of(proj), dd=dd)
             for model in MODELS:
                 runs, times = [], []
                 for rep in range(REPEATS):

@@ -19,9 +19,10 @@ ZHIPU_KEY_FILE = HOME / ".zcode/v2/provider_config.json"
 LLM_BASE = "https://open.bigmodel.cn/api/coding/paas/v4"
 LLM_TEXT = "glm-5.3"          # 编剧/分镜,重质量
 LLM_FAST = "glm-5.3-flash"    # 轻量步骤
-# 审片 VLM: glm-4.5v(默认,A/B 实测偏差最小);glm-5.3-flash 亦支持图片输入(更快但偏差略大,
-# 见 scripts/vision_ab.py)。切换: 环境变量 SD_VISION_MODEL=glm-5.3-flash 后重启服务。
-LLM_VISION = os.environ.get("SD_VISION_MODEL", "glm-4.5v")
+# 审片 VLM: glm-5.3-flash(默认,2026-09-25 用户指定替换 4.5v;同代更新更强);
+# glm-4.5v 亦可(旧 A/B 偏差更小:0.48 vs 0.83,见 scripts/vision_ab.py)。
+# 切换: 环境变量 SD_VISION_MODEL=glm-4.5v 后重启服务。
+LLM_VISION = os.environ.get("SD_VISION_MODEL", "glm-5.3-flash")
 
 # ── 视频生成端硬约束(Sol-H3 冻结值) ──
 SHOT_FRAMES = 121

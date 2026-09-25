@@ -20,6 +20,15 @@ PROMPT_TMPL = """{refs_desc}后3张是同一镜头视频的第0.5s/2.5s/4.5s帧(
  "advice_cn": "不通过时给一句具体重拍建议(如:换运镜/减动作/强调光线);通过则空串"}}"""
 
 
+def orient_note_of(proj):
+    """审片提示里的画幅说明(与项目交付 orientation 一致;vision_ab 等工具共用)."""
+    portrait = proj.settings().get("orientation", "landscape") == "portrait"
+    return (f"横版 {config.VIDEO_W}x{config.VIDEO_H},成片会中心裁切成竖版,"
+            f"所以主体必须在中三分之一" if portrait else
+            f"横版 {config.VIDEO_W}x{config.VIDEO_H} 直出,"
+            f"主体保持中三分之一构图")
+
+
 def _ffprobe(video):
     r = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries",
@@ -59,7 +68,6 @@ def review(proj, force=False):
     gen = proj.load_stage("generate")
     sb = proj.load_stage("storyboard")
     script = proj.load_stage("script")
-    portrait = proj.settings().get("orientation", "landscape") == "portrait"
     dd_by = {s["id"]: s for s in script["shots"]}
     cast_stage = proj.load_stage("cast")
     cast_by_name = {r["char"]: r["profile"] for r in cast_stage["cast"]}
@@ -94,10 +102,7 @@ def review(proj, force=False):
         ref_imgs = [p for prof in in_cast for p in (prof["refs"]["closeup"], prof["refs"]["front"])]
         refs_desc = (f"前{len(ref_imgs)}张图是角色参考图(每位角色两张:头部特写+全身正面,"
                      f"顺序对应镜中 Subject 编号)," if ref_imgs else "本镜是无人物空镜,")
-        orient_note = (f"横版 {config.VIDEO_W}x{config.VIDEO_H},成片会中心裁切成竖版,"
-                       f"所以主体必须在中三分之一" if portrait else
-                       f"横版 {config.VIDEO_W}x{config.VIDEO_H} 直出,"
-                       f"主体保持中三分之一构图")
+        orient_note = orient_note_of(proj)
         text = PROMPT_TMPL.format(refs_desc=refs_desc, orient_note=orient_note,
                                   dd=dd_full)
         try:
