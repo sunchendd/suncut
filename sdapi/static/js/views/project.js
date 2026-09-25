@@ -8,17 +8,19 @@ import screenwriter from '../panels/screenwriter.js';
 import storyboard from '../panels/storyboard.js';
 import director from '../panels/director.js';
 import reviewer from '../panels/reviewer.js';
+import dubbing from '../panels/dubbing.js';
 import producer from '../panels/producer.js';
 import logsPanel from '../panels/logs.js';
 
 const TABS = [
   ['cast', 'casting', '① 招聘', casting],
-  ['materials', 'materials', '② 物料', materials],
+  ['materials', 'materials', '② 服化道', materials],
   ['script', 'screenwriter', '③ 编剧', screenwriter],
   ['storyboard', 'storyboard', '④ 分镜', storyboard],
   ['generate', 'director', '⑤ 导演', director],
   ['review', 'reviewer', '⑥ 审片', reviewer],
-  ['deliver', 'producer', '⑦ 制片', producer],
+  ['dub', 'dubbing', '⑦ 配音师', dubbing],
+  ['deliver', 'producer', '⑧ 制片', producer],
   [null, 'logs', '🧾 任务与日志', logsPanel],
 ];
 
@@ -128,18 +130,50 @@ export default async function render(root, name) {
     tabBox.append(node);
   }
 
+  // ---------- 项目设置(横竖屏/分辨率) ----------
+  const editSettings = () => {
+    const cur = d.settings || { orientation: 'landscape', resolution: '1080p' };
+    const ori = el('select', {},
+      el('option', { value: 'landscape', selected: cur.orientation === 'landscape' ? '' : null }, '横屏 16:9(推荐·原生画质)'),
+      el('option', { value: 'portrait', selected: cur.orientation === 'portrait' ? '' : null }, '竖屏 9:16(裁切·清晰度降)'));
+    const res = el('select', {},
+      ...['1080p', '720p', '480p'].map(r => el('option', { value: r, selected: cur.resolution === r ? '' : null }, r)));
+    modal({
+      title: '视频设置(横竖屏 / 分辨率)',
+      body: el('div', {},
+        el('div', { class: 'small dim', style: { marginBottom: '10px' } },
+          '生成端固定 1344×768;横屏=直出 16:9(原生画质,默认);竖屏=中心裁切 9:16 再放大,宽度仅用画幅 1/3,清晰度明显下降。分镜与审片的构图要求会自动跟随。'),
+        el('label', { class: 'field' }, el('span', {}, '画幅'), ori),
+        el('label', { class: 'field' }, el('span', {}, '分辨率'), res)),
+      actions: [
+        { label: '取消', kind: 'ghost', onclick: c => c() },
+        { label: '保存', kind: 'primary', onclick: async c => {
+          try {
+            const r = await api.post(`/api/projects/${name}/settings`,
+              { orientation: ori.value, resolution: res.value });
+            c(); toast(r.warning ? `已保存 —— ${r.warning}` : '设置已保存', r.warning ? 'warn' : 'ok');
+            refresh();
+          } catch (e) { toast(e.message, 'bad'); }
+        } },
+      ],
+    });
+  };
+
   function paintHeader(rootHeader) {
     clear(rootHeader);
+    const s = d.settings || {};
+    const resTxt = `${s.orientation === 'landscape' ? '横屏' : '竖屏'}${s.resolution || '1080p'}`;
     rootHeader.append(
       el('div', { class: 'spread' },
         el('div', {},
           el('h1', {}, d.script?.title_cn || name, el('span', { class: 'faint', style: { fontSize: '13px', marginLeft: '8px' } }, name)),
-          el('div', { class: 'small dim' }, `${d.shots} 镜 · 创建 ${d.created} · 5.04s/镜 · 1344×768 → 竖版1080×1920`)),
+          el('div', { class: 'small dim' }, `${d.shots} 镜 · 创建 ${d.created} · 5.04s/镜 · 1344×768 → `,
+            el('button', { class: 'chip', style: { cursor: 'pointer' }, onclick: editSettings }, `🎞 ${resTxt} ✏️`))),
         el('div', { class: 'row' },
           el('button', { class: 'btn primary sm', disabled: !!d.busy,
             onclick: () => run('pipeline', { mode: 'stepwise' }, '分步流水线:每个 agent 完成后暂停等你放行,审片后必停。', '启动') }, '🧭 分步流水线'),
           el('button', { class: 'btn sm', disabled: !!d.busy,
-            onclick: () => run('produce', { auto_retake: true }, '全自动:一次到底,自动重拍≤2轮,全片约1-2小时。', '开拍') }, '🎬 全自动'),
+            onclick: () => run('produce', { auto_retake: true }, '全自动:一次到底,自动重拍≤2轮,配音后交付,全片约1-2小时。', '开拍') }, '🎬 全自动'),
           el('button', { class: 'btn ghost sm', onclick: editBrief }, '✏️ brief'))),
       briefBox,
       stepper, busyBox);

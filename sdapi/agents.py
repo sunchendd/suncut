@@ -1,26 +1,27 @@
-"""agents —— 7 个 agent 的服务化门面:把 sd/ 的同步函数包装成可提交的任务体.
+"""agents —— 8 个 agent 的服务化门面:把 sd/ 的同步函数包装成可提交的任务体.
 
 约定: 所有 op 形如 fn(job, **ctx),由 JobManager 在工作线程里调用;
 print 输出被 PrintHub 自动收进任务日志,长耗时的 infer 进度由 GenLogTailer 追加.
 """
 import json
 
-from sd import (casting, config as sd_config, director, doctor, materials,
-                producer, qwenimage, regen as regen_mod, report, reviewer,
-                screenwriter, storyboard, turntable)
+from sd import (casting, config as sd_config, director, doctor, dubbing,
+                materials, producer, qwenimage, regen as regen_mod, report,
+                reviewer, screenwriter, storyboard, turntable)
 from sd.metrics import Metrics, stopwatch
 from sd.project import Project
 
 from .jobs import manager
 
 STAGES = [
-    ("cast", "1/7 招聘选角", casting.run, False),
-    ("materials", "2/7 场景物料", materials.run, False),
-    ("script", "3/7 编剧", screenwriter.run, False),
-    ("storyboard", "4/7 分镜", storyboard.run, False),
-    ("generate", "5/7 导演开拍", director.shoot, True),
-    ("review", "6/7 审片", reviewer.review, False),
-    ("deliver", "7/7 制片交付", producer.deliver, False),
+    ("cast", "1/8 招聘选角", casting.run, False),
+    ("materials", "2/8 服化道", materials.run, False),
+    ("script", "3/8 编剧", screenwriter.run, False),
+    ("storyboard", "4/8 分镜", storyboard.run, False),
+    ("generate", "5/8 导演开拍", director.shoot, True),
+    ("review", "6/8 审片", reviewer.review, False),
+    ("dub", "7/8 配音配乐", dubbing.run, False),
+    ("deliver", "8/8 制片交付", producer.deliver, False),
 ]
 
 
@@ -42,6 +43,29 @@ def op_simple(stage):
     return run
 
 
+def op_cast_manual(job, name=None, cast=None, **_):
+    """手动选角(工作台): 1-2 名演员 + 角色名;缺三视图自动补(GPU)."""
+    proj = Project(name)
+    _stage(job, "cast", "1/8 招聘选角(手动)")
+    with stopwatch(proj, "cast"):
+        return casting.run_manual(proj, cast or [])
+
+
+def op_deliver(job, name=None, force=False, subs=False, **_):
+    """交付(可选字幕烧录;配音产物存在时自动混入)."""
+    proj = Project(name)
+    _stage(job, "deliver", "8/8 制片交付" + ("(烧字幕)" if subs else ""))
+    with stopwatch(proj, "deliver"):
+        return producer.deliver(proj, force=force, subs=bool(subs))
+
+
+def op_master(job, name=None, force=False, subs=False, **_):
+    proj = Project(name)
+    _stage(job, "master", "母版超分交付")
+    producer.deliver_master(proj, force=force, subs=bool(subs))
+    return "母版已交付"
+
+
 def op_retake(job, name=None, case=None, advice="", **_):
     proj = Project(name)
     _stage(job, "retake", f"重拍 {case}")
@@ -56,13 +80,6 @@ def op_regen(job, name=None, case=None, steps=14, seed=None, sampler="res_multis
     with stopwatch(proj, "regen", case=case):
         mp4, secs = regen_mod.run(proj, case, steps=steps, sampler=sampler, seed=seed)
     return {"mp4": mp4, "seconds": secs}
-
-
-def op_master(job, name=None, force=False, **_):
-    proj = Project(name)
-    _stage(job, "master", "母版超分交付")
-    producer.deliver_master(proj, force=force)
-    return "母版已交付"
 
 
 def op_retake_failed(job, name=None, **_):
@@ -123,11 +140,11 @@ def op_pipeline(job, name=None, mode="stepwise", **_):
 
     with manager.gpu_lock():
         with stopwatch(proj, "generate"):
-            _stage(job, "generate", "5/7 导演开拍")
+            _stage(job, "generate", "5/8 导演开拍")
             director.shoot(proj, force=False)
 
     with stopwatch(proj, "review"):
-        _stage(job, "review", "6/7 审片")
+        _stage(job, "review", "6/8 审片")
         rv = reviewer.review(proj, force=False)
     Metrics(proj).mark("review", 0.0, {"passed": f"{rv['passed']}/{rv['total']}"})
     # 人工审片标记参与判定:人工翻案(通过)的未过镜不算失败;人工否决的过镜算失败
@@ -158,8 +175,16 @@ def op_pipeline(job, name=None, mode="stepwise", **_):
                    meta={"failing": failing, "passed": rv["passed"], "total": rv["total"],
                          "overridden": overridden})
 
+    # 配音(失败不阻塞: 剧本无台词或 TTS 不可用时原声直出)
+    with stopwatch(proj, "dub"):
+        _stage(job, "dub", "7/8 配音配乐")
+        try:
+            dubbing.run(proj)
+        except Exception as e:
+            job.log_write(f"[配音] 跳过: {e}\n")
+
     with stopwatch(proj, "deliver"):
-        _stage(job, "deliver", "7/7 制片交付")
+        _stage(job, "deliver", "8/8 制片交付")
         producer.deliver(proj, force=False)
     try:
         report.make_cover(proj)
@@ -239,16 +264,58 @@ def op_audition_batch(job, requirement="", count=5, direct_sign=True, **_):
     return {"made": made, "direct_sign": direct_sign}
 
 
+def op_audition_sign_cards(job, cards=None, **_):
+    """按既定名单批量签约(卡直接全链入库;单人失败不断链,末尾汇总).挂机档."""
+    from sd import audition as A
+    made, failed = [], []
+    for i, card in enumerate(cards or [], 1):
+        name = card.get("name", "?")
+        _stage(job, "audition", f"批量签约 {i}/{len(cards)} · {name}")
+        try:
+            d, c2 = A.create_candidate(card)
+            final = A.sign(c2["name"], name_override=card.get("final_name"))
+            made.append(final)
+            job.log_write(f"[签约] {name} → {final}\n")
+        except Exception as e:
+            failed.append({"name": name, "error": str(e)[:200]})
+            job.log_write(f"[签约] {name} 失败(继续下一个): {e}\n")
+    job.log_write(f"[签约] 批量完成: 成功 {len(made)} / 失败 {len(failed)}\n")
+    return {"made": made, "failed": failed}
+
+
+def op_audition_refit(job, plan=None, **_):
+    """按官方立绘批量重置(精修 DNA + 看图重出全套参考图;单人失败不断链)."""
+    from sd import audition as A
+    done, failed = [], []
+    for i, item in enumerate(plan or [], 1):
+        name = item.get("name", "?")
+        _stage(job, "audition", f"立绘重置 {i}/{len(plan)} · {name}")
+        try:
+            final = A.refit({k: v for k, v in item.items()
+                             if k in ("name", "positioning_cn", "face_dna",
+                                      "outfit_dna", "seed")},
+                            item.get("portrait"))
+            done.append(final)
+            job.log_write(f"[重置] {name} → {final}\n")
+        except Exception as e:
+            failed.append({"name": name, "error": str(e)[:200]})
+            job.log_write(f"[重置] {name} 失败(继续下一个): {e}\n")
+    job.log_write(f"[重置] 批量完成: 成功 {len(done)} / 失败 {len(failed)}\n")
+    return {"done": done, "failed": failed}
+
+
 # ---------------------------------------------------------------- op 注册表
 # (提交参数校验后的) op 名 -> (callable, gpu, tail_gen)
 OPS = {
     "cast":         (op_simple("cast"), False, False),
+    "cast_manual":  (op_cast_manual, True, False),
     "materials":    (op_simple("materials"), False, False),
     "script":       (op_simple("script"), False, False),
     "storyboard":   (op_simple("storyboard"), False, False),
     "generate":     (op_simple("generate"), True, True),
     "review":       (op_simple("review"), False, False),
-    "deliver":      (op_simple("deliver"), False, False),
+    "dub":          (op_simple("dub"), False, False),
+    "deliver":      (op_deliver, False, False),
     "master":       (op_master, True, False),
     "retake":       (op_retake, True, True),
     "retake_failed": (op_retake_failed, True, True),
@@ -262,16 +329,21 @@ OPS = {
     "audition.reroll":   (op_audition_reroll, True, False),
     "audition.sign":     (op_audition_sign, True, False),
     "audition.batch":    (op_audition_batch, True, False),
+    "audition.sign_cards": (op_audition_sign_cards, True, False),
+    "audition.refit":     (op_audition_refit, True, False),
 }
 
-OP_TITLES = {"cast": "招聘选角", "materials": "场景物料", "script": "编剧",
-             "storyboard": "分镜", "generate": "导演开拍", "review": "审片",
+OP_TITLES = {"cast": "招聘选角", "cast_manual": "手动选角", "materials": "服化道",
+             "script": "编剧", "storyboard": "分镜", "generate": "导演开拍",
+             "review": "审片", "dub": "配音配乐",
              "deliver": "制片交付", "master": "母版超分", "retake": "单镜重拍", "retake_failed": "一键重拍未过镜",
              "regen": "14步重生成", "produce": "全自动流水线",
              "pipeline": "分步流水线", "buildrefs": "补角色参考图",
              "turntable": "转台参考集", "doctor": "环境预检",
              "audition.generate": "生成试镜照", "audition.reroll": "重掷试镜照",
-             "audition.sign": "签约入库", "audition.batch": "批量签约群演"}
+             "audition.sign": "签约入库", "audition.batch": "批量签约群演",
+             "audition.sign_cards": "按名单批量签约",
+             "audition.refit": "按立绘批量重置"}
 
 
 def build_op(op, ctx):

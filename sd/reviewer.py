@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import config, llm
 
-PROMPT_TMPL = """{refs_desc}后3张是同一镜头视频的第0.5s/2.5s/4.5s帧(横版 {w}x{h},成片会中心裁切成竖版,所以主体必须在中三分之一)。
+PROMPT_TMPL = """{refs_desc}后3张是同一镜头视频的第0.5s/2.5s/4.5s帧({orient_note})。
 
 【该镜要求】{dd}
 
@@ -59,6 +59,7 @@ def review(proj, force=False):
     gen = proj.load_stage("generate")
     sb = proj.load_stage("storyboard")
     script = proj.load_stage("script")
+    portrait = proj.settings().get("orientation", "landscape") == "portrait"
     dd_by = {s["id"]: s for s in script["shots"]}
     cast_stage = proj.load_stage("cast")
     cast_by_name = {r["char"]: r["profile"] for r in cast_stage["cast"]}
@@ -93,8 +94,12 @@ def review(proj, force=False):
         ref_imgs = [p for prof in in_cast for p in (prof["refs"]["closeup"], prof["refs"]["front"])]
         refs_desc = (f"前{len(ref_imgs)}张图是角色参考图(每位角色两张:头部特写+全身正面,"
                      f"顺序对应镜中 Subject 编号)," if ref_imgs else "本镜是无人物空镜,")
-        text = PROMPT_TMPL.format(refs_desc=refs_desc, w=config.VIDEO_W,
-                                  h=config.VIDEO_H, dd=dd_full)
+        orient_note = (f"横版 {config.VIDEO_W}x{config.VIDEO_H},成片会中心裁切成竖版,"
+                       f"所以主体必须在中三分之一" if portrait else
+                       f"横版 {config.VIDEO_W}x{config.VIDEO_H} 直出,"
+                       f"主体保持中三分之一构图")
+        text = PROMPT_TMPL.format(refs_desc=refs_desc, orient_note=orient_note,
+                                  dd=dd_full)
         try:
             # 双次评审取均值(单次 VLM 打分噪声大,同视频可差 ±4)
             v1 = llm.extract_json(llm.vision(text, ref_imgs + frames))

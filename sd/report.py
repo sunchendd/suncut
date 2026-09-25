@@ -96,6 +96,8 @@ def write_report(proj):
         proj.path / "picks.json").exists() else []
     state = proj.load_state()
     takes = state.get("takes", {})
+    dub = proj.load_stage("dub") or {}
+    settings = proj.settings()
     sc_by = {s["id"]: s for s in script.get("shots", [])}
     rv_by = {r["case"]: r for r in rv.get("results", [])}
 
@@ -104,24 +106,38 @@ def write_report(proj):
              f"- 生成时间: {state.get('created', '')}",
              f"- 镜数: {len(script.get('shots', []))} × {config.SHOT_SECONDS:.2f}s"
              f" = {len(script.get('shots', [])) * config.SHOT_SECONDS:.1f}s",
-             f"- 音乐: {mats.get('music_en', '')[:80]}…", "", "## 选角", ""]
+             f"- 画幅/分辨率: {'横屏' if settings['orientation'] == 'landscape' else '竖屏'}"
+             f" {settings['resolution']}",
+             f"- 音乐: {mats.get('music_en', '')[:80]}…"]
+    if dub:
+        segs = dub.get("segments") or []
+        voices = dub.get("voices") or {}
+        lines.append(f"- 配音: {len(segs)} 段(edge-tts,音色 "
+                     f"{','.join(voices.values()) or dub.get('narrator', '')})"
+                     + (",BGM 替换" if dub.get("bgm_override") else ""))
+    lines += ["", "## 选角", ""]
     for r in cast["cast"]:
         lines.append(f"- **{r['char']}**({r['story_role']}): {r.get('reason', '')}"
                      f" | seed={r['profile'].get('seed')}")
     lines += ["", "## 逐镜", "",
-              "| 镜 | 场景 | 出场 | 旁白 | 身份/动作/构图 | 选条 |", "|---|---|---|---|---|---|"]
+              "| 镜 | 场景 | 出场 | 台词/旁白 | 身份/动作/构图 | 选条 |", "|---|---|---|---|---|---|"]
     for p in picks:
         shot = sc_by.get(p["case"].split("-")[-1], {})
         r = rv_by.get(p["case"], {})
         n_take = len(takes.get(p["case"], []))
+        dia = " / ".join(f"{d['who']}:{d['line']}" for d in shot.get("dialogue_cn") or [])
+        voice_txt = dia or shot.get("narration_cn", "")
         lines.append(
             f"| {shot.get('id', '?')} | {shot.get('scene', '?')} | "
-            f"{'+'.join(shot.get('cast', [])) or '空镜'} | {shot.get('narration_cn', '')} | "
+            f"{'+'.join(shot.get('cast', [])) or '空镜'} | {voice_txt} | "
             f"{r.get('identity', '-')}/{r.get('action', '-')}/{r.get('composition', '-')}"
             f"{f'(重拍{n_take})' if n_take else ''} | `{Path(p['picked']).name}` |")
     lines += ["", "## 阶段耗时", "", "```", Metrics(proj).summary(), "```", "", "## 产物", ""]
-    for p in sorted((proj.path).glob("*.mp4")):
-        lines.append(f"- {p.name} ({p.stat().st_size / 1e6:.1f}MB)")
+    for sub in ("deliver", ""):
+        for p in sorted((proj.path / sub).glob("*.mp4")) if sub else sorted(proj.path.glob("*.mp4")):
+            lines.append(f"- {'deliver/' if sub else ''}{p.name} ({p.stat().st_size / 1e6:.1f}MB)")
+    for srt in sorted((proj.path / "subtitles").glob("*.srt")):
+        lines.append(f"- subtitles/{srt.name}")
     for d in sorted(config.DESKTOP.glob(f"短剧-*{proj.name}*")):
         lines.append(f"- 桌面/{d.name}")
     rep = proj.path / "制作报告.md"

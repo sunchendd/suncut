@@ -6,17 +6,25 @@ import { videoModal } from './actions.js';
 export default function render(ctx) {
   const { d, name, run, refresh } = ctx;
   const box = el('div', {});
+  const s = d.settings || {};
+  const resTxt = `${s.orientation === 'landscape' ? '横屏' : '竖屏'} ${s.resolution || '1080p'}`;
+
+  const subs = el('input', { type: 'checkbox', checked: '' });
+  subs.style.accentColor = 'var(--acc, #4a9)';
+  const doDeliver = () => run('deliver', { force: true, subs: subs.checked },
+    `重新选片并交付(${resTxt};${subs.checked ? '烧录台词/旁白字幕;' : ''}配音产物自动混入)到 deliver/ 与桌面。`, '交付');
 
   box.append(el('div', { class: 'spread' },
     el('div', {},
       el('h2', {}, '制片交付'),
       el('p', { class: 'page-sub' },
-        '按剧本顺序选每镜历史最佳条(全≥7优先)拼接;横版 CRF17 + 竖版 1080×1920 + PIL 封面 + 制作报告,交付副本落桌面。')),
+        `按剧本顺序选每镜历史最佳条(全≥7优先)拼接 → ${resTxt} CRF17 → deliver/ 与桌面;配音师产物自动侧链混入;可勾选烧录字幕。`)),
     el('div', { class: 'row' },
-      el('button', { class: 'btn primary sm', disabled: !!d.busy,
-        onclick: () => run('deliver', { force: true }, '重新选片并交付(覆盖项目内交付物与桌面副本)。', '交付') }, '📦 交付成片'),
+      el('label', { class: 'row small', style: { gap: '4px', alignSelf: 'center' } },
+        subs, '📝 自动字幕'),
+      el('button', { class: 'btn primary sm', disabled: !!d.busy, onclick: doDeliver }, '📦 交付成片'),
       el('button', { class: 'btn sm', disabled: !!d.busy,
-        onclick: () => run('master', {}, '母版链:ComfyUI SPAN×2 超分 → 1080p → CRF14(~80s/镜,自动拉起 ComfyUI)。', '生成母版') }, '💎 母版超分'))));
+        onclick: () => run('master', { subs: subs.checked }, `母版链:ComfyUI SPAN×2 超分 → ${resTxt} → CRF14(~80s/镜,自动拉起 ComfyUI)。`, '生成母版') }, '💎 母版超分'))));
 
   // 选片表
   if (d.picks?.length) {

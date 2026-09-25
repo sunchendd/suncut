@@ -28,14 +28,21 @@ def run(proj, force=False):
     cast_by_name = {r["char"]: r["profile"] for r in proj.load_stage("cast")["cast"]}
     shots_in = [{"id": s["id"], "scene": s["scene"], "cast": s.get("cast", []),
                  "shot_en": s["shot_en"], "action_en": s["action_en"]} for s in script["shots"]]
+    orient_note = ("横构图、主体 central third(成片会中心裁竖版,主体必须在中三分之一)"
+                   if proj.settings().get("orientation", "landscape") == "portrait"
+                   else "横构图、主体 central third(横版直出)")
     user = f"""【剧本镜头(英文基础描述,cast=该镜出场角色)】
 {json.dumps(shots_in, ensure_ascii=False)}
 
 【场景DNA(描述中必须体现其地点与光线)】
 {scene_lines}
 
+【光线与色调纪律(detailed_description 的光线短语必须遵守)】
+主光源从词表选一(带方向): soft window key light / warm tungsten key light from one side / cold neon rim light / golden-hour warm backlight / overcast diffused daylight / single practical lamp low-key
+同一场景各镜共用同一主光源,色调不得逐镜冷暖跳变;禁 low light / underexposed / dim(暗部噪点毁清晰度)。
+
 为每镜输出英文的 detailed_description(一段: 景别+运镜+动作+场景+光线,
-{config.VIDEO_W}x{config.VIDEO_H} 横构图、主体 central third、no cuts、no text)
+{config.VIDEO_W}x{config.VIDEO_H} {orient_note}、no cuts、no text)
 和 overall_soundscape(该镜环境音,英文)。
 出场角色按 cast 顺序写成 <Subject 1>(第一位)/<Subject 2>(第二位,若有)。
 
@@ -89,7 +96,7 @@ def run(proj, force=False):
                 "prompt": (f"detailed_description: {dd} "
                            f"overall_soundscape: {dd_by[s['id']]['overall_soundscape']}. "
                            f"non_diegetic_music: {mats['music_en']}"),
-                "note": f"{s['emotion_cn']} | 空镜 | 旁白: {s.get('narration_cn', '')}",
+                "note": _shot_note(s, []),
                 "dd": dd,
                 "soundscape": dd_by[s["id"]]["overall_soundscape"],
                 "cast": [],
@@ -112,8 +119,7 @@ def run(proj, force=False):
                 f"overall_soundscape: {dd_by[s['id']]['overall_soundscape']}. "
                 f"non_diegetic_music: {mats['music_en']}"
             ),
-            "note": f"{s['emotion_cn']} | 旁白: {s.get('narration_cn', '')} | "
-                    f"出场: {'+'.join(p['name'] for p in in_shot)}",
+            "note": _shot_note(s, in_shot),
             "dd": dd,                       # 留档供单镜重拍时外科手术式改写
             "soundscape": dd_by[s["id"]]["overall_soundscape"],
             "cast": [p["name"] for p in in_shot],
@@ -128,6 +134,19 @@ def run(proj, force=False):
            "cast_per_case": {r["case_id"]: r["cast"] for r in rows}}
     proj.save_stage("storyboard", out, meta={"cases": out["cases"]})
     return out
+
+
+def _shot_note(s, in_shot):
+    """分镜行的中文摘要: 情绪 | 台词/旁白 | 出场(配音与面板共用)."""
+    parts = [s.get("emotion_cn", "")]
+    dia = " / ".join(f"{d['who']}:{d['line']}" for d in s.get("dialogue_cn") or [])
+    voice = dia or (s.get("narration_cn") or "")
+    parts.append((("台词: " + dia) if dia else ("旁白: " + voice) if voice else "无台词"))
+    if in_shot:
+        parts.append("出场: " + "+".join(p["name"] for p in in_shot))
+    else:
+        parts.append("空镜")
+    return " | ".join(p for p in parts if p)
 
 
 def _lint_and_rewrite(shots_in, dd_by, max_rounds=2):

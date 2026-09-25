@@ -3,8 +3,8 @@ import { api } from '../api.js';
 import * as bus from '../bus.js';
 import { el, clear, toast, modal, confirmModal } from '../ui.js';
 
-const STAGES = [['cast', '招聘'], ['materials', '物料'], ['script', '编剧'],
-  ['storyboard', '分镜'], ['generate', '开拍'], ['review', '审片'], ['deliver', '交付']];
+const STAGES = [['cast', '招聘'], ['materials', '服化道'], ['script', '编剧'],
+  ['storyboard', '分镜'], ['generate', '开拍'], ['review', '审片'], ['dub', '配音'], ['deliver', '交付']];
 
 async function run(name, op, extra = {}) {
   try {
@@ -14,22 +14,32 @@ async function run(name, op, extra = {}) {
   } catch (e) { toast(`提交失败:${e.message}`, 'bad'); }
 }
 
-function newProjectModal() {
+export function newProjectModal() {
   const name = el('input', { type: 'text', placeholder: '英文/拼音,如 yedeng(唯一人工输入的名字)' });
   const brief = el('textarea', { placeholder: '一句话故事梗概。例:雨夜便利店的女孩,用便利贴回复每晚匿名留言的常客,直到最后一晚纸条上写着告别。' });
   const shots = el('input', { type: 'number', value: '4', min: '1', max: '12' });
+  const ori = el('select', {},
+    el('option', { value: 'landscape', selected: '' }, '横屏 16:9(推荐·原生画质)'),
+    el('option', { value: 'portrait' }, '竖屏 9:16(裁切·清晰度降)'));
+  const res = el('select', {},
+    el('option', { value: '1080p', selected: '' }, '1080p'),
+    el('option', { value: '720p' }, '720p(更快更小)'),
+    el('option', { value: '480p' }, '480p(草稿预览)'));
   modal({
     title: '新建短剧项目',
     body: el('div', {},
       el('label', { class: 'field' }, el('span', {}, '项目名'), name),
       el('label', { class: 'field' }, el('span', {}, '故事梗概(一句话,决定全片基调)'), brief),
-      el('label', { class: 'field' }, el('span', {}, '镜头数(1 镜≈5秒)'), shots)),
+      el('div', { class: 'row' },
+        el('label', { class: 'field', style: { flex: '1' } }, el('span', {}, '画幅'), ori),
+        el('label', { class: 'field', style: { flex: '1' } }, el('span', {}, '分辨率'), res),
+        el('label', { class: 'field', style: { width: '110px' } }, el('span', {}, '镜头数(1镜≈5s)'), shots))),
     actions: [
       { label: '取消', kind: 'ghost', onclick: (c) => c() },
       {
         label: '创建', kind: 'primary', onclick: async (c) => {
           try {
-            await api.post('/api/projects', { name: name.value.trim(), brief: brief.value, shots: +shots.value });
+            await api.post('/api/projects', { name: name.value.trim(), brief: brief.value, shots: +shots.value, orientation: ori.value, resolution: res.value });
             c(); toast(`项目 ${name.value.trim()} 已创建`, 'ok');
             location.hash = `#/project/${name.value.trim()}`;
           } catch (e) { toast(e.message, 'bad'); }
@@ -86,7 +96,7 @@ export default async function render(root) {
 
   root.append(
     el('div', { class: 'spread' },
-      el('div', {}, el('h1', {}, '仪表盘'), el('p', { class: 'page-sub' }, '一句话梗概 → 竖版短剧:七个 agent 分工 + 本地出图出视频,人工只留质控位')),
+      el('div', {}, el('h1', {}, '仪表盘'), el('p', { class: 'page-sub' }, '一句话梗概 → 竖版短剧:八个 agent 分工 + 本地出图出视频,人工只留质控位')),
       el('div', { class: 'row' },
         data.actors ? el('a', { class: 'chip', href: '#/pool', style: { textDecoration: 'none' } },
           `🎭 演员 ${data.actors.ready}/${data.actors.total} 可开拍`) : null,
@@ -95,11 +105,21 @@ export default async function render(root) {
         el('button', { class: 'btn primary', onclick: newProjectModal }, '＋ 新建项目'))),
     list);
 
+  // 任务事件频繁(每次状态推进一条),节流合并刷新,避免整页重绘抖动
+  let pending = false;
+  const fetchOverview = () => {
+    api.get('/api/overview').then(d => {
+      data = d;
+      if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; paint(); }); }
+    }).catch(() => {});
+  };
+  let timer = null;
   const off = bus.on('job', () => {
-    api.get('/api/overview').then(d => { data = d; paint(); }).catch(() => {});
+    clearTimeout(timer);
+    timer = setTimeout(fetchOverview, 800);
   });
   return {
-    dispose: off,
-    refresh: () => api.get('/api/overview').then(d => { data = d; paint(); }).catch(() => {}),
+    dispose: () => { off(); clearTimeout(timer); },
+    refresh: fetchOverview,
   };
 }

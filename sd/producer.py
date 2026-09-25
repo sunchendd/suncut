@@ -1,9 +1,15 @@
-"""制片 agent —— 全流程编排 + 成片交付(横版/竖版裁切)到桌面."""
+"""制片 agent —— 全流程编排 + 成片交付(横竖屏/分辨率按项目设置,可选字幕烧录与配音混入).
+
+交付目录(D6 优化后):
+  deliver/<名>-横版WxH.mp4 / <名>-竖版WxH.mp4   最终成片(烧字幕版带 -字幕 后缀)
+  deliver/base.mp4                              工作母版(拼接+可选VO混音)
+  桌面副本: 短剧-<剧名>-<名>-<横版|竖版>WxH[-母版].mp4
+"""
 import json
-import subprocess
 from pathlib import Path
 
-from . import casting, config, director, materials, reviewer, screenwriter, storyboard
+from . import av, casting, config, director, dubbing, materials, reviewer, \
+    screenwriter, storyboard
 from .metrics import Metrics, stopwatch
 from .project import Project
 
@@ -16,19 +22,19 @@ def produce(name, auto_retake=True, force_stage=None):
         raise SystemExit(f"项目不存在: {name}(先 python3 -m sd new)")
     force = lambda st: force_stage == st   # noqa: E731
 
-    steps = [("cast", "1/7 招聘选角", casting.run),
-             ("materials", "2/7 场景物料", materials.run),
-             ("script", "3/7 编剧", screenwriter.run),
-             ("storyboard", "4/7 分镜", storyboard.run)]
+    steps = [("cast", "1/8 招聘选角", casting.run),
+             ("materials", "2/8 服化道", materials.run),
+             ("script", "3/8 编剧", screenwriter.run),
+             ("storyboard", "4/8 分镜", storyboard.run)]
     for stage, label, fn in steps:
         print(f"[制片] {label}…")
         with stopwatch(proj, stage):
             fn(proj, force=force(stage))
 
-    print("[制片] 5/7 导演开拍…")
+    print("[制片] 5/8 导演开拍…")
     with stopwatch(proj, "generate", shots=len(proj.load_state().get("takes", {})) or proj.load_state()["shots"]):
         director.shoot(proj, force=force("generate"))
-    print("[制片] 6/7 审片…")
+    print("[制片] 6/8 审片…")
     with stopwatch(proj, "review"):
         rv = reviewer.review(proj, force=force("review"))
     Metrics(proj).mark("review", 0.0, {"passed": f"{rv['passed']}/{rv['total']}"})
@@ -50,7 +56,13 @@ def produce(name, auto_retake=True, force_stage=None):
                 rv = reviewer.review(proj, force=True)
             Metrics(proj).mark("review", 0.0, {"passed": f"{rv['passed']}/{rv['total']}"})
             print(f"[复审R{round_i}] {rv['passed']}/{rv['total']} 过")
-    print("[制片] 7/7 交付…")
+    print("[制片] 7/8 配音配乐…")
+    try:
+        with stopwatch(proj, "dub"):
+            dubbing.run(proj)
+    except Exception as e:                        # 配音失败不阻塞交付(原声直出)
+        print(f"[制片] 配音跳过: {e}")
+    print("[制片] 8/8 交付…")
     with stopwatch(proj, "deliver"):
         paths = deliver(proj)
     try:
@@ -68,12 +80,78 @@ def produce(name, auto_retake=True, force_stage=None):
     return paths
 
 
-def deliver_master(proj, force=False):
-    """母版交付: master 1080p 条拼接 → 横版 CRF14 + 竖版 1080x1920 到桌面."""
+def _final_encode(src, out, settings, subs_srt=None, crf=17, preset="medium",
+                  abitrate="192k", look=True):
+    """按项目设置(横竖屏/分辨率)出最终片;subs_srt 给定则烧字幕.视频重编码.
+
+    look: 感知链(hqdn3d/LUT/eq/cas).母版交付的 master 条已在超分端烤入感知链,
+    其再编码(烧字幕)传 look=False 防二次叠加.
+    尺寸已达标且不烧字幕 → 流拷省一代编码(母版链全程只剩 SPAN 后那一次 CRF14).
+    """
+    landscape = settings["orientation"] == "landscape"
+    W, H = config.RESOLUTIONS[settings["resolution"]][0 if landscape else 1]
+    if not subs_srt and av.probe_size(src) == (W, H):
+        av.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
+                "-c", "copy", str(out)])
+        return {"path": str(out), "w": W, "h": H, "copy": True}
+    vf = av.orient_vf(W, H, settings["orientation"], look=look)
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src)]
+    cwd = None
+    if subs_srt and Path(subs_srt).exists():
+        vf = av.burn_vf(Path(subs_srt).name, extra=av.orient_vf(
+            W, H, settings["orientation"], look=look))
+        cwd = str(Path(subs_srt).parent)          # srt 相对名,规避滤镜串转义
+    cmd += ["-vf", vf, "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
+            "-c:a", "aac", "-b:a", abitrate, str(out)]
+    av.run(cmd, timeout=3600, cwd=cwd)
+    return {"path": str(out), "w": W, "h": H}
+
+
+def deliver(proj, force=False, subs=False):
+    """按剧本顺序选每镜最佳条 → 拼接 → (配音混入) → 横/竖+分辨率 → deliver/ 与桌面."""
+    settings = proj.settings()
+    out_dir = proj.path / "deliver"
+    out_dir.mkdir(exist_ok=True)
+    segs, pick_log = av.pick_best(proj)
+    (proj.path / "picks.json").write_text(json.dumps(pick_log, ensure_ascii=False, indent=1))
+
+    base = av.concat(segs, proj.path / "concat.txt", out_dir / "base.mp4", reencode=True)
+    vo = av.vo_of(proj)
+    if vo:                                         # 配音师产物 → 侧链压制混入
+        base = av.mix_vo(base, vo, out_dir / "base-dub.mp4", bgm=av.bgm_of(proj))
+        print(f"[制片] 混入配音: {vo}")
+
+    srt = proj.path / "subtitles" / f"{proj.name}.srt"
+    if not srt.exists():
+        srt = proj.path / "narration.srt"          # 老项目兼容
+    landscape = settings["orientation"] == "landscape"
+    W, H = config.RESOLUTIONS[settings["resolution"]][0 if landscape else 1]
+    label = "横版" if landscape else "竖版"
+    name_stem = f"{proj.name}-{label}{W}x{H}" + ("-字幕" if subs else "")
+    h = out_dir / f"{name_stem}.mp4"
+    _final_encode(base, h, settings, subs_srt=(srt if subs else None), crf=17)
+
+    title = (proj.load_stage("script") or {}).get("title_cn", proj.name)
+    v = config.DESKTOP / (f"短剧-{title}-{proj.name}-{label}{W}x{H}"
+                          + ("-字幕" if subs else "") + ".mp4")
+    try:
+        v.write_bytes(h.read_bytes())              # 同机桌面,直接复制
+    except OSError:
+        import shutil
+        shutil.copy2(h, v)
+    return {"deliver": str(h), "desktop": str(v), "resolution": f"{W}x{H}",
+            "orientation": label, "subs": bool(subs), "dubbed": bool(vo)}
+
+
+def deliver_master(proj, force=False, subs=False):
+    """母版交付: master 1080p 条拼接 → (配音混入) → 按设置横竖/分辨率 CRF14 → 桌面."""
     from . import master
     m = master.run(proj, force=force)
     script = proj.load_stage("script")
+    settings = proj.settings()
     order = {f"{proj.name}-{s['id']}": i for i, s in enumerate(script["shots"])}
+    out_dir = proj.path / "deliver"
+    out_dir.mkdir(exist_ok=True)
 
     def shot_order(c):
         case = Path(c).stem[: -len("-1080p")]     # <proj>-<qid>-1080p → <proj>-<qid>
@@ -81,75 +159,31 @@ def deliver_master(proj, force=False):
 
     clips = sorted(m["clips"], key=shot_order)
     concat = proj.path / "concat_master.txt"
-    concat.write_text("".join(f"file '{c}'\n" for c in clips))
+    src = out_dir / "base-master.mp4"
+    try:                                           # 同源同参先流拷
+        av.concat(clips, concat, src, reencode=False)
+    except Exception:
+        src = av.concat(clips, concat, src, reencode=True)
+
+    vo = av.vo_of(proj)
+    if vo:
+        src = av.mix_vo(src, vo, out_dir / "base-master-dub.mp4", bgm=av.bgm_of(proj))
+
+    srt = proj.path / "subtitles" / f"{proj.name}.srt"
+    if not srt.exists():
+        srt = proj.path / "narration.srt"
+    landscape = settings["orientation"] == "landscape"
+    W, H = config.RESOLUTIONS[settings["resolution"]][0 if landscape else 1]
+    label = "横版" if landscape else "竖版"
+    h = out_dir / f"{proj.name}-母版-{label}{W}x{H}" + ("-字幕" if subs else "") + ".mp4"
+    _final_encode(src, h, settings, subs_srt=(srt if subs else None),
+                  crf=14, preset="slow", look=False)
     title = script.get("title_cn", proj.name)
-    h = proj.path / f"{proj.name}-母版-横版1080p.mp4"
-    v = config.DESKTOP / f"短剧-{title}-{proj.name}-母版竖版1080p.mp4"
-    run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True)  # noqa: E731
-    r = run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
-             "-i", str(concat), "-c", "copy", str(h)])
-    if r.returncode != 0:   # copy 失败(参数差异)则重编码
-        r = run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
-                 "-i", str(concat), "-c:v", "libx264", "-crf", "14", "-preset", "slow",
-                 "-c:a", "aac", "-b:a", "192k", str(h)])
-        if r.returncode != 0:
-            raise RuntimeError("母版横版拼接失败: " + r.stderr[-300:])
-    r = run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(h),
-             "-vf", "crop=612:1088:654:0,scale=1080:1920:flags=lanczos",
-             "-c:v", "libx264", "-crf", "14", "-preset", "slow", "-c:a", "copy", str(v)])
-    if r.returncode != 0:
-        raise RuntimeError("母版竖版裁切失败: " + r.stderr[-300:])
-    return {"master_horizontal": str(h), "master_vertical_desktop": str(v)}
-
-
-def deliver(proj, force=False):
-    """按剧本顺序拼接每镜最佳条 → 横版 CRF17 + 竖版 1080x1920,复制到桌面."""
-    script = proj.load_stage("script")
-    state = proj.load_state()
-    gen = proj.load_stage("generate")
-    takes = state.get("takes", {})
-    rv = proj.load_stage("review") or {"results": []}
-    verdict = {r["case"]: r.get("verdict") for r in rv["results"]}
-
-    segs, pick_log = [], []
-    for shot in script["shots"]:
-        case = f"{proj.name}-{shot['id']}"
-        gen_scores = state.get("gen_scores", {}).get(case, {})
-        candidates = [{"mp4": t["mp4"], "scores": t.get("scores", {})}
-                      for t in takes.get(case, [])]          # 重拍条
-        if gen["videos"].get(case):                            # 首轮条殿后
-            candidates.append({"mp4": gen["videos"][case], "scores": gen_scores})
-        candidates = [c for c in candidates if Path(c["mp4"]).exists()]
-        if not candidates:
-            raise RuntimeError(f"{case} 没有任何可用条")
-
-        def rank(c):   # 有分数且全 ≥7 最优,其次总分,无分垫底
-            s = c.get("scores") or {}
-            ok = 1 if (s and min(s.values()) >= 7) else 0
-            return (ok, sum(s.values()) if s else -1)
-
-        best = max(candidates, key=rank)
-        segs.append(best["mp4"])
-        pick_log.append({"case": case, "picked": best["mp4"], "verdict": verdict.get(case),
-                         "picked_scores": best.get("scores")})
-    (proj.path / "picks.json").write_text(json.dumps(pick_log, ensure_ascii=False, indent=1))
-
-    concat = proj.path / "concat.txt"
-    concat.write_text("".join(f"file '{s}'\n" for s in segs))
-    title = (proj.load_stage("script") or {}).get("title_cn", proj.name)
-    h = proj.path / f"{proj.name}-横版.mp4"
-    v = config.DESKTOP / f"短剧-{title}-{proj.name}-竖版.mp4"
-    run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True)  # noqa: E731
-
-    r = run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
-             "-i", str(concat), "-c:v", "libx264", "-crf", "17", "-preset", "medium",
-             "-c:a", "aac", "-b:a", "160k", str(h)])
-    if r.returncode != 0:
-        raise RuntimeError("横版拼接失败: " + r.stderr[-400:])
-    r = run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(h),
-             "-vf", "crop=432:768:456:0,scale=1080:1920:flags=lanczos,unsharp=5:5:0.35",
-             "-c:v", "libx264", "-crf", "17", "-preset", "medium",
-             "-c:a", "copy", str(v)])
-    if r.returncode != 0:
-        raise RuntimeError("竖版裁切失败: " + r.stderr[-400:])
-    return {"horizontal": str(h), "vertical_desktop": str(v)}
+    v = config.DESKTOP / (f"短剧-{title}-{proj.name}-母版{label}{W}x{H}"
+                          + ("-字幕" if subs else "") + ".mp4")
+    try:
+        v.write_bytes(h.read_bytes())
+    except OSError:
+        import shutil
+        shutil.copy2(h, v)
+    return {"master": str(h), "master_desktop": str(v), "resolution": f"{W}x{H}"}

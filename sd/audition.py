@@ -37,6 +37,23 @@ TURNAROUND_NEG = ("模糊, 低分辨率, 失焦, 畸变的手指和四肢, 文�
                   "欧美人长相, 西方面孔, 高加索特征, 深眼窝高鼻梁的欧美立体脸, 金发碧眼, "
                   "成熟妇女感, 大龄感, 严肃刻板面相")
 
+# 游戏还原模式(look="game"): IP 角色批量入库 —— 发色/瞳色/年龄/人种按卡设定,
+# 不做中式/低龄锚定(如星露谷的紫发/银须/老年村民/黑人科学家)。
+TURNAROUND_TMPL_GAME = (
+    "Professional studio photography: full-body character reference photos of a real "
+    "adult as described below, shot for a live-action film production, styled like a "
+    "trendy modern game-character cosplay photoshoot. The same person photographed three "
+    "times side by side: front view, side view and back view, standing in a relaxed "
+    "neutral A-pose, aligned on the same ground line, identical person in all three "
+    "photos. This person is {anchor}. Faithful to the described signature hair color, "
+    "hairstyle, eye color, age and outfit. Shot on a Canon EOS R5, 85mm lens at f/2.8, "
+    "flattering soft beauty lighting, true-to-life colors, realistic fabric weave and "
+    "texture, plain light gray seamless studio backdrop, sharp focus")
+
+TURNAROUND_NEG_GAME = ("模糊, 低分辨率, 失焦, 畸变的手指和四肢, 文字乱码, 三个视角外观不一致, "
+                       "构图错乱, 粗糙暗沉的皮肤, 廉价感, 塑料感皮肤, 过度磨皮, 蜡像感, "
+                       "CG渲染, 3D渲染, 插画, 动漫风格, 洋娃娃感, 过度饱和, 浓重美颜滤镜")
+
 CARDS_SYSTEM = """你是影视选角导演,为本地短剧工坊签约新演员设计人设卡。审美铁律与硬性规范:
 0) 审美铁律(最高优先级): 一律**中式审美东亚面孔**——FACE DNA 必须显式写
    Chinese/East Asian features(如 a sweet Chinese young woman / a handsome young Chinese man),
@@ -112,6 +129,10 @@ def create_candidate(card):
 
 
 def _card_md(card):
+    look_line = ("\n**风格**:\n> 游戏还原(按设定发色/瞳色/年龄/人种)\n"
+                 if card.get("look") == "game" else "")
+    portrait_line = (f"\n**参考立绘**:\n> {card['portrait']}\n"
+                     if card.get("portrait") else "")
     return f"""# {card['name']} — 提示词档案(工坊候选)
 
 > 定位:{card.get('positioning_cn', '')}
@@ -123,7 +144,7 @@ def _card_md(card):
 
 **默认穿搭**:
 > {card['outfit_dna']}
-
+{look_line}{portrait_line}
 **seed:{card['seed']}**　**风格后缀**:`photorealistic real-person style, cinematic photography, detailed realistic skin and fabric texture, even soft studio lighting, shot on 85mm lens, sharp focus`
 """
 
@@ -138,9 +159,12 @@ def char_of(name):
         return " ".join(l.lstrip("> ").strip() for l in m.group(1).splitlines()) if m else ""
 
     seed = re.search(r"seed[：:]\s*(\d+)", md)
+    portrait = block(r"\*\*参考立绘")
     return {"name": name, "dir": str(d),
             "face_dna": block(r"\*\*FACE\*\*") or "a young adult",
             "outfit_dna": block(r"\*\*默认穿搭") or "casual modern outfit",
+            "look": "game" if "游戏还原" in md else "cn",
+            "portrait": portrait if portrait and Path(portrait).exists() else None,
             "seed": int(seed.group(1)) if seed else config.CHAR_SEED_BASE,
             "refs": {}}
 
@@ -175,7 +199,7 @@ def discard(name):
 
 # ---------------------------------------------------------------- 生成(走 GPU)
 def audition_photo(char, attempt=None):
-    """单种子锁脸试镜照 → 0_试镜/audition.png(重掷=新 attempt)."""
+    """单种子锁脸试镜照 → 0_试镜/audition.png(重掷=新 attempt;带立绘则看图还原)."""
     out = Path(char["dir"]) / "0_试镜"
     out.mkdir(parents=True, exist_ok=True)
     _wait_gpu_free(char["dir"])
@@ -186,9 +210,11 @@ def audition_photo(char, attempt=None):
               if "少年" not in face and "girl" not in face.lower()
               else "natural fresh complexion, lively curious expression")
     prompt = qwenimage.CLOSEUP_TMPL.format(face=face, outfit=outfit, makeup=makeup)
+    refs = [char["portrait"]] if char.get("portrait") else None
     dst = out / "audition.png"
     print(f"[签约] {char['name']} 试镜照 seed={seed}(attempt {attempt + 1})…")
-    qwenimage._gen_one(prompt, seed, dst, steps=25, width=1024, height=1280)
+    qwenimage._gen_one(prompt, seed, dst, steps=25, width=1024, height=1280,
+                       ref_images=refs)
     return dst
 
 
@@ -229,15 +255,24 @@ def gen_turnaround(char, seed=None, steps=40, width=2528, height=1696, force=Fal
         print(f"[签约] 已有三视图自检未过({reason0}),重新生成…")
     _wait_gpu_free(char["dir"])
     anchor = f"{char['face_dna']}, wearing {char['outfit_dna']}"
-    prompt = TURNAROUND_TMPL.format(anchor=anchor)
+    game = char.get("look") == "game"
+    tmpl = TURNAROUND_TMPL_GAME if game else TURNAROUND_TMPL
+    neg = TURNAROUND_NEG_GAME if game else TURNAROUND_NEG
+    prompt = tmpl.format(anchor=anchor)
+    refs = None
+    if char.get("portrait"):
+        prompt = ("Recreate the exact character from the reference portrait as a "
+                  "photorealistic live-action person for a film production — identical "
+                  "hairstyle, hair color, eye color, skin tone and outfit colors. " + prompt)
+        refs = [char["portrait"]]
     seed = seed or char["seed"]
     qwenimage._gen_one(prompt, seed, dst, steps=steps, width=width, height=height,
-                       neg=TURNAROUND_NEG, timeout=2700)
+                       neg=neg, timeout=2700, ref_images=refs)
     ok, reason = _vlm_check_turnaround(dst, char)
     if not ok:
         print(f"[签约] 三视图自检未过({reason}),换 seed 重掷一次…")
         qwenimage._gen_one(prompt, seed + 88, dst, steps=steps, width=width, height=height,
-                           neg=TURNAROUND_NEG, timeout=2700)
+                           neg=neg, timeout=2700, ref_images=refs)
         ok, reason = _vlm_check_turnaround(dst, char)
         if not ok:
             raise RuntimeError(f"三视图两次未过自检: {reason}")
@@ -270,13 +305,16 @@ def _next_letter():
     used = set()
     if (config.WORKSHOP / "素材").exists():
         for d in (config.WORKSHOP / "素材").iterdir():
-            m = re.match(r"^角色([A-Z])_", d.name)
+            m = re.match(r"^角色([A-Z]+)_", d.name)
             if m:
                 used.add(m.group(1))
-    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":            # 先单字母,用尽后 S 系双字母
         if ch not in used:
             return ch
-    return random.choice("XYZ")
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        if f"S{ch}" not in used:
+            return f"S{ch}"
+    return "S" + random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 
 def sign(name, name_override=None):
@@ -294,3 +332,76 @@ def sign(name, name_override=None):
     shutil.move(str(_cdir(name)), str(dst))
     print(f"[签约] {name} 已入库 → {dst.name}(招聘 agent 立即可选)")
     return dst.name
+
+
+# ---------------------------------------------------------------- 参考立绘重置(refit)
+def refit(card, portrait):
+    """按官方立绘重置一名演员: 精修 DNA 入档 → 旧参考图归档 → 看图重出全套.
+
+    card: {name, positioning_cn?, face_dna, outfit_dna, seed?}
+    目录三态: 素材/角色X_<名>(已入库,原地重置)/ 候选/<名>(半成品,重置后签约)/ 无(新建签约)。
+    """
+    name = card["name"]
+    portrait = Path(portrait)
+    if not portrait.exists():
+        raise FileNotFoundError(f"参考立绘不存在: {portrait}")
+    # 1) 定位目录
+    mats_dir = None
+    if (config.WORKSHOP / "素材").exists():
+        for d in sorted((config.WORKSHOP / "素材").iterdir()):
+            if d.name.endswith(f"_{name}") and d.is_dir():
+                mats_dir = d
+                break
+    cand_dir = _cdir(name) if _cdir(name).exists() else None
+
+    # 2) 归档旧产物 + 重写档案(精修 DNA + 游戏还原 + 立绘)
+    target = mats_dir or cand_dir
+    if target is None:
+        d, c2 = create_candidate({**card, "look": "game",
+                                  "portrait": str(portrait),
+                                  "seed": card.get("seed") or random.randint(1_000_000, 9_999_999)})
+        print(f"[重置] {name} 无旧档,新建候选后直接全链")
+        return sign(c2["name"])
+    arc = target / "归档" / time.strftime("重置前-%m%d-%H%M")
+    for sub in ("1_设定图", "2_视频参考", "0_试镜"):
+        s = target / sub
+        if s.exists() and any(s.iterdir()):
+            arc.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(s), str(arc / sub))
+            print(f"[重置] {name} 旧 {sub} → {arc.name}")
+    old_md = (target / "角色提示词.md").read_text(encoding="utf-8")
+    seed_m = re.search(r"seed[：:]\s*(\d+)", old_md)
+    pos_m = re.search(r"定位[：:]\s*(.+)", old_md)
+    positioning = card.get("positioning_cn") or (pos_m.group(1).strip() if pos_m else "")
+    new_card = {**card, "name": target.name if mats_dir else name,
+                "positioning_cn": positioning,
+                "look": "game", "portrait": str(portrait),
+                "seed": int(seed_m.group(1)) if seed_m else
+                (card.get("seed") or random.randint(1_000_000, 9_999_999))}
+    if mats_dir:                                  # 已入库: 档案名带前缀,单独写
+        (target / "角色提示词.md").write_text(_card_md(new_card), encoding="utf-8")
+        char = _char_from_dir(target, new_card["name"])
+        full_package(char)
+        print(f"[重置] {new_card['name']} 参考图已按立绘重出")
+        return new_card["name"]
+    (target / "角色提示词.md").write_text(_card_md(new_card), encoding="utf-8")
+    return sign(name)                              # 候选: 重置后走签约入库
+
+
+def _char_from_dir(d, name):
+    """素材目录(非候选)→ char dict;与 char_of 同一套解析."""
+    md = (d / "角色提示词.md").read_text(encoding="utf-8")
+
+    def block(tag):
+        m = re.search(tag + r"[^\n]*\n+\s*((?:>[^\n]*\n?)+)", md)
+        return " ".join(l.lstrip("> ").strip() for l in m.group(1).splitlines()) if m else ""
+
+    seed = re.search(r"seed[：:]\s*(\d+)", md)
+    portrait = block(r"\*\*参考立绘")
+    return {"name": name, "dir": str(d),
+            "face_dna": block(r"\*\*FACE\*\*") or "a young adult",
+            "outfit_dna": block(r"\*\*默认穿搭") or "casual modern outfit",
+            "look": "game" if "游戏还原" in md else "cn",
+            "portrait": portrait if portrait and Path(portrait).exists() else None,
+            "seed": int(seed.group(1)) if seed else config.CHAR_SEED_BASE,
+            "refs": {}}

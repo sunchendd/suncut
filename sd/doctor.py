@@ -66,6 +66,22 @@ def run(quick_llm=False):
     check("演员库", len(ready) >= 1, f"{len(ready)}/{len(chars)} 可开拍"
           f"({' '.join(c['name'] for c in ready)})")
 
+    # 资产库(服化道预选来源;空库只是提示不拦截)
+    try:
+        from . import assetlib
+        n_sc, n_pr = len(assetlib.list_assets("scene")), len(assetlib.list_assets("prop"))
+        ok.append(f"✓ 资产库 场地{n_sc}/道具{n_pr}({config.ASSET_LIB})" if n_sc or n_pr
+                  else f"- 资产库为空(跑一次服化道会自动归档;{config.ASSET_LIB})")
+    except Exception as e:
+        warn.append(f"✗ 资产库不可写 {e}")
+
+    # edge-tts(配音师;离线只降级不拦截)
+    tts = str(config.EDGE_TTS) if config.EDGE_TTS.exists() else (shutil.which("edge-tts") or "")
+    if tts:
+        ok.append(f"✓ edge-tts(配音师可用) {tts}")
+    else:
+        warn.append("- edge-tts 缺失(配音师不可用;~/venvs/sdapi/bin/pip install edge-tts)")
+
     # 智谱 key
     try:
         key = config.zhipu_key()

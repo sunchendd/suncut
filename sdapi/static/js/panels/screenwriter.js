@@ -42,23 +42,26 @@ export default function render(ctx) {
     scoreBars(s.critique)));
 
   const bodyRows = (s.shots || []).map(sh => {
-    const detailCell = el('td', { style: { maxWidth: '420px' } },
+    const detailCell = el('td', { style: { maxWidth: '380px' } },
       el('details', {},
         el('summary', { class: 'small dim' }, (sh.shot_en || '').slice(0, 46) + '…'),
         el('div', { class: 'small' }, el('b', {}, 'shot_en: '), sh.shot_en || ''),
         el('div', { class: 'small', style: { marginTop: '4px' } }, el('b', {}, 'action_en: '), sh.action_en || '')));
+    const dia = (sh.dialogue_cn || []).map(d2 => `「${d2.who}」${d2.line}`).join(' ');
     return el('tr', {},
       el('td', {}, el('span', { class: 'chip' }, sh.id)),
       el('td', {}, sh.scene || '-'),
       el('td', {}, (sh.cast || []).join('、') || '空镜'),
       el('td', {}, sh.emotion_cn || '-'),
-      el('td', { style: { maxWidth: '200px' } }, sh.narration_cn || ''),
+      el('td', { style: { maxWidth: '180px' } }, dia
+        ? el('div', {}, el('span', { class: 'chip acc' }, '台词'), ' ', dia)
+        : (sh.narration_cn || '')),
       detailCell);
   });
   const tbl = el('table', { class: 'tbl' },
     el('thead', {}, el('tr', {},
       el('th', {}, '镜'), el('th', {}, '场景'), el('th', {}, '出场'), el('th', {}, '情绪'),
-      el('th', {}, '旁白(≤25字)'), el('th', {}, '画面与动作'))),
+      el('th', {}, '台词 / 旁白'), el('th', {}, '画面与动作'))),
     el('tbody', {}, ...bodyRows));
   box.append(el('div', { class: 'card', style: { padding: '6px 10px' } },
     el('div', { class: 'scroll-x' }, tbl)));

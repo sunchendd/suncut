@@ -3,7 +3,7 @@
 > 版本: v1.0 (2026-09-24)
 > 代码: `shortdrama/sdapi/`(本目录为设计文档;实现见 sdapi/)
 > 定位: 把纯后台 CLI 流水线(python3 -m sd)升级为**网页可控的微服务工作台**,
-> 使用者可代入七个 agent 角色把控质量与成品,同时保留全自动档。
+> 使用者可代入八个 agent 角色把控质量与成品,同时保留全自动档。
 
 ---
 
@@ -95,12 +95,17 @@ REST 回传;**审片后必停一档**(列出未过镜头+重拍建议),这是网
 | 方法/路径 | 用途 |
 |---|---|
 | GET `/api/overview` | 仪表盘:项目列表+状态摘要+近期任务 |
-| POST `/api/projects` | 新建(name/brief/shots) |
+| POST `/api/projects` | 新建(name/brief/shots/**orientation/resolution**) |
 | GET `/api/projects/{n}` | **读模型聚合**:brief/stages/cast/materials/script/storyboard/cases(每镜 join 了 dd/video/review/takes/抽帧)/picks/deliverables/gen_logs/metrics/busy |
-| POST `/api/projects/{n}/run` | 提交任务:op∈{cast..deliver,master,retake,regen,produce,pipeline}+force/mode/case/advice/steps/seed |
+| POST `/api/projects/{n}/run` | 提交任务:op∈{cast,**cast_manual**,materials,script,storyboard,generate,review,**dub**,deliver,master,retake,retake_failed,regen,produce,pipeline}+force/mode/case/advice/steps/seed/**subs** |
 | POST `/api/projects/{n}/dd` | dd 外科手术编辑(lint 闸,422 返回命中规则) |
 | POST `/api/projects/{n}/brief` | 改梗概(提示下游需 force 重跑) |
 | POST `/api/projects/{n}/review/human` | 人工通过/否决标记(否决引导重拍) |
+| POST `/api/projects/{n}/cast` | 手动选角(1-2 人;缺三视图任务内自动补图) |
+| POST `/api/projects/{n}/assets` | 预选资产库场地/道具(assets.json,服化道阶段生效) |
+| POST `/api/projects/{n}/settings` | 改横竖屏/分辨率(交付端裁切) |
+| POST/DELETE `/api/projects/{n}/bgm` | 上传/移除全片 BGM 替换(循环铺底+侧链让路) |
+| GET/POST `/api/assets`、DELETE `/api/assets/{kind}/{id}` | 资产库(场地/道具)CRUD |
 | GET `/api/pool`、POST `/api/pool/{char}/run` | 演员库浏览、buildrefs/turntable |
 | GET `/api/jobs[?project=]`、GET `/api/jobs/{id}` | 任务列表/详情(含日志 tail) |
 | POST `/api/jobs/{id}/resume|cancel` | 审批门放行/取消 |

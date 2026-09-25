@@ -1,31 +1,85 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light" data-motion="on">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>短剧流水线 · 自动化工作台</title>
 <link rel="stylesheet" href="/static/css/app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+<script>
+/* 首帧前应用偏好,避免主题闪变 */
+try {
+  const p = JSON.parse(localStorage.getItem('suncut.prefs') || '{}');
+  document.documentElement.dataset.theme = p.theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.motion = p.motion === 'off' ? 'off' : 'on';
+} catch (e) { }
+</script>
 </head>
 <body>
 <header id="topbar">
-  <div class="brand">🎬 短剧流水线 <span class="sub">自动化工作台</span></div>
+  <div class="brand">
+    <span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 4v16M16 4v16M4 9h4M4 15h4M16 9h4M16 15h4"/></svg></span>
+    <span>短剧流水线</span><span class="sub">自动化工作台</span>
+  </div>
+
+  <div id="ticker"></div>
+
   <div class="top-actions">
-    <a href="#/jobs" class="navlink">任务</a>
-    <a href="#/pool" class="navlink">演员库</a>
-    <a href="#/system" class="navlink">系统</a>
-    <span id="ws-dot" class="ws-dot off" title="WebSocket 连接状态"></span>
+    <span class="icon-btn" id="ws-wrap" title="实时通道状态" style="cursor:default">
+      <span id="ws-dot" class="ws-dot off"></span>
+    </span>
+    <button class="icon-btn" id="theme-btn" title="切换 蓝白 / 暗色"></button>
+    <div class="pop-wrap">
+      <button class="icon-btn" id="settings-btn" title="外观与动效设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+    <button class="btn primary sm" id="new-proj-btn">＋ 新建项目</button>
   </div>
 </header>
+
 <div id="layout">
   <nav id="sidenav">
-    <a href="#/dashboard" data-nav="dashboard">🏠 仪表盘</a>
+    <div class="nav-group">
+      <div class="nav-group-label">工作台</div>
+      <a href="#/dashboard" data-nav="dashboard" title="仪表盘">
+        <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
+        <span class="txt">仪表盘</span>
+      </a>
+    </div>
     <div class="nav-sep"></div>
-    <div id="nav-projects" class="nav-group"></div>
+    <div class="nav-group" style="flex:1;min-height:0">
+      <div class="nav-group-label">项目</div>
+      <div id="nav-projects"></div>
+    </div>
     <div class="nav-sep"></div>
-    <a href="#/jobs" data-nav="jobs">⚙️ 任务中心</a>
-    <a href="#/pool" data-nav="pool">🎭 演员库</a>
-    <a href="#/system" data-nav="system">🩺 系统</a>
+    <div class="nav-group">
+      <div class="nav-group-label">资源中心</div>
+      <a href="#/pool" data-nav="pool" title="演员库">
+        <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <span class="txt">演员库</span>
+      </a>
+      <a href="#/assets" data-nav="assets" title="资产库">
+        <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12.01l8.73-5.05"/><path d="M12 22.08V12"/></svg></span>
+        <span class="txt">资产库</span>
+      </a>
+    </div>
+    <div class="nav-sep"></div>
+    <div class="nav-group">
+      <div class="nav-group-label">系统运维</div>
+      <a href="#/jobs" data-nav="jobs" title="任务中心">
+        <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+        <span class="txt">任务中心</span>
+      </a>
+      <a href="#/system" data-nav="system" title="系统">
+        <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg></span>
+        <span class="txt">系统</span>
+      </a>
+    </div>
+    <button class="side-toggle" id="side-toggle" title="折叠 / 展开侧栏" aria-label="折叠或展开侧栏">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      <span class="txt">收起侧栏</span>
+    </button>
   </nav>
   <main id="view"></main>
 </div>

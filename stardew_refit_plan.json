@@ -1,0 +1,368 @@
+[
+ {
+  "name": "乔治",
+  "positioning_cn": "星露谷固执老人:炉边的外公",
+  "face_dna": "a gruff elderly man in his late seventies with a prominent bald crown and short, stiff white hair on the sides, thick bushy gray eyebrows that furrow heavily, deep-set dark brown eyes with a piercing and grumpy gaze, pale skin with deep frown lines and a permanent scowl, thin lips pressed together in a stubborn, displeased expression",
+  "outfit_dna": "a heavy dark teal or navy blue knit cardigan worn over a solid forest green turtleneck sweater, brown trousers, a wooden cane for support, warm wool slippers",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/乔治.png",
+  "ref_changed": [
+   "Outer garment color changed from red to dark teal/navy blue",
+   "Inner shirt changed from checked flannel to a solid forest green turtleneck",
+   "Refined facial expression to emphasize the specific 'grumpy/frowning' pixel art look with furrowed brows"
+  ]
+ },
+ {
+  "name": "亚历克斯",
+  "positioning_cn": "星露谷运动系男主:阳光自恋的橄榄球少年",
+  "face_dna": "A handsome athletic young man in his early twenties with messy, textured short auburn hair that spikes upward and outward, healthy sun-tanned skin, and striking bright blue eyes. He has a cool, confident expression with a firm, slightly serious gaze and a strong, well-defined jawline.",
+  "outfit_dna": "A classic green varsity jacket with a prominent yellow ribbed collar, worn over a blue crew-neck shirt. He is wearing dark slim-fit jeans and clean white sneakers, tucking a gridball casually under one arm.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/亚历克斯.png",
+  "ref_changed": [
+   "Revised hairstyle to 'messy, textured short auburn hair that spikes upward' to accurately reflect the voluminous, spiky pixel art style.",
+   "Corrected expression from 'slight smile' to 'firm, slightly serious gaze' as the original portrait shows a more neutral, confident look rather than an overt smile.",
+   "Confirmed the outfit details: green jacket with distinct yellow ribbed collar and blue inner shirt."
+  ]
+ },
+ {
+  "name": "伊芙琳",
+  "positioning_cn": "星露谷慈祥奶奶:镇上的老甜心",
+  "face_dna": "一位年近八旬的甜美老妇人，拥有一头烟灰白色的柔软长发，在脑后挽成一个略显蓬松且自然的发髻。她的皮肤白皙，脸颊透着健康的红晕，眼角眉梢刻满了深刻而温柔的笑纹。她的双眼轻轻闭合或低垂，流露出一种平和、知足且极具亲和力的微笑神情，整体散发着一种静谧、慈祥的祖母般温暖气质。",
+  "outfit_dna": "上身穿着一件质感厚实的深红色或酒红色格纹（Plaid/Tartan）法兰绒纽扣衬衫，内搭一件带有小巧洁白翻领的衬衣；下身保留舒适的居家装扮。整体风格质朴、温暖，充满了乡村生活的惬意感。",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/伊芙琳.png",
+  "ref_changed": [
+   "发型：将'neat bun (整洁发髻)'修订为'fluffy, slightly loose gray-white bun (蓬松自然的灰白发髻)'，更贴合立绘的体积感",
+   "服装：将'pink floral dress & lavender cardigan (粉色碎花裙与紫开衫)'完全修订为'red plaid flannel shirt (红色格纹法兰绒衬衫)'，严格对齐立绘视觉特征",
+   "表情神态：增加了'eyes gently closed or downcast (双眼微闭或低垂)'的细节描述，以匹配立绘中独特的慈祥神态"
+  ]
+ },
+ {
+  "name": "克林特",
+  "positioning_cn": "星露谷铁匠:羞涩的打铁人",
+  "face_dna": "a stocky shy blacksmith in his thirties with messy warm-brown (light chestnut) wavy hair and a prominent, thick dark-brown handlebar-style beard covering the upper lip and chin; pale skin, melancholic blue eyes, and a reserved, slightly sad and weary expression looking downward",
+  "outfit_dna": "a heavy orange-brown (tan) leather blacksmith apron worn over a thick grey turtleneck knit sweater with visible ribbed texture at the collar; soot-stained leather gloves tucked in the belt, sturdy boots",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/克林特.png",
+  "ref_changed": [
+   "Hair color changed from 'thick dark brown' to 'messy warm-brown/light chestnut'",
+   "Facial hair changed from 'heavy stubble' to a 'prominent thick dark-brown handlebar-style beard'",
+   "Apron color changed from 'dark-blue' to 'orange-brown/tan'",
+   "Inner shirt changed from 'rolled-sleeve gray work shirt' to 'thick grey turtleneck knit sweater'",
+   "Expression refined from 'awkward' to 'melancholic/sad and weary'"
+  ]
+ },
+ {
+  "name": "刘易斯",
+  "positioning_cn": "星露谷镇长:爱面子的老领导",
+  "face_dna": "A portly, self-important mayor in his sixties with gray-brown short hair neatly combed back under a textured tan cotton flat cap. He sports a thick, well-groomed gray-white handlebar mustache that obscures his upper lip. His eyes are small and shrewd, carrying a hint of smugness, and he wears a pompous, avuncular smile that seems self-satisfied. His skin is fair with slight weathering.",
+  "outfit_dna": "He is wearing a vibrant green long-sleeved button-down shirt, paired with a bright yellow necktie and thick dark brown leather suspenders. He wears a signature light brown newsboy cap on his head. The lower half consists of dark fitted slacks and polished brown loafers as per the original character design.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/刘易斯.png",
+  "ref_changed": [
+   "Added a tan/brown flat cap (newsboy cap) which is a key visual feature missing from the old DNA",
+   "Changed shirt color from golden-yellow to vibrant green to match the sprite",
+   "Changed neckwear from a purple patterned neckerchief to a yellow tie",
+   "Added dark brown suspenders over the shirt"
+  ]
+ },
+ {
+  "name": "卡罗琳",
+  "positioning_cn": "星露谷茶艺主妇:阿比盖尔的母亲",
+  "face_dna": "a young woman with vibrant emerald-green dyed hair, shoulder-length with messy layers and side-swept bangs, bright blue eyes, fair skin, and a neutral, slightly reserved expression",
+  "outfit_dna": "a vibrant cyan or royal blue high-necked hoodie or sweater, paired with a long earth-toned skirt, and simple round earrings",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/卡罗琳.png",
+  "ref_changed": [
+   "Hair color changed from dark teal-green to vibrant emerald-green",
+   "Hair style changed from neat low bun to shoulder-length messy layers with bangs",
+   "Eye color changed from soft green to bright blue",
+   "Expression changed from gentle calm smile to neutral/reserved",
+   "Top outfit changed from sage-green blouse/cardigan to vibrant blue high-neck hoodie/sweater"
+  ]
+ },
+ {
+  "name": "古斯",
+  "positioning_cn": "星露谷酒馆老板:热情的大厨",
+  "face_dna": "jolly heavyset white chef in his fifties with a round friendly face, warm hospitable grin, and bright eyes, featuring messy short brown hair with texture on top, a full thick brown mustache connecting to sideburns, and a fair skin tone",
+  "outfit_dna": "a casual mustard-yellow jacket with dark brown or black contrast trim on the collar, worn over a simple blue shirt, (lower body retained from original) checked chef trousers, non-slip kitchen shoes",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/古斯.png",
+  "ref_changed": [
+   "Race/Skin tone: Changed from Black to white/fair-skinned",
+   "Hair: Changed from clean-shaven bald head to messy short brown hair",
+   "Facial Hair: Changed from neat black goatee to a thick brown mustache with connected sideburns",
+   "Top: Changed from crisp white double-breasted chef jacket to a casual yellow jacket with dark trim"
+  ]
+ },
+ {
+  "name": "哈维",
+  "positioning_cn": "星露谷温柔系男主:小镇飞行梦医生",
+  "face_dna": "A gentle man in his early thirties with a warm, slightly round face and fair skin. He has textured side-swept chestnut-brown hair with a few stray strands falling over his forehead. He wears minimalist silver thin-rimmed round glasses, behind which lie deep, soulful dark brown eyes. He sports a well-groomed brown mustache that connects to a goatee, giving him a professional yet approachable look. His expression is serious and focused, carrying a sense of sincere concern and gentle determination rather than a smile.",
+  "outfit_dna": "He is wearing a vibrant forest-green button-up jacket over a crisp white dress shirt with a stiff collar. A medical stethoscope is draped around his neck, with the silver metal dual-tubes resting against his chest. A small brown decorative button or badge is visible at the center of his green collar. He wears dark trousers and polished brown shoes.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/哈维.png",
+  "ref_changed": [
+   "Hairstyle revised from 'neat short' to 'textured side-swept with stray strands' to match the pixel art's parting and volume.",
+   "Expression revised from 'caring slightly-nervous smile' to 'serious, focused, and sincerely concerned' to reflect the neutral-to-worried mouth line in the sprite.",
+   "Shirt color revised from 'sage-green' to 'vibrant forest-green' for better color accuracy.",
+   "Removed 'brown knit sweater vest' and replaced with 'white dress shirt under green jacket' based on the visible white collar and green outer layer.",
+   "Added detail of a 'small brown button/badge' visible on the collar.",
+   "Refined facial hair description to include the connecting goatee."
+  ]
+ },
+ {
+  "name": "塞巴斯蒂安",
+  "positioning_cn": "星露谷暗黑系男主:车库里的程序员浪子",
+  "face_dna": "A realistic close-up portrait of a pale, introverted young man in his mid-twenties with a slender build and sharp jawline. He has thick, medium-length deep charcoal-black hair with subtle cool blue undertones, styled in a slightly messy, textured cut with heavy side-swept bangs partially covering his forehead. His eyes are a striking cool gray-blue, holding a quiet, brooding, and distant expression under soft lighting.",
+  "outfit_dna": "He is wearing a dark navy blue or black pullover hoodie with a visible zipper detail at the collar, showing a soft cotton texture. A small silver hoop earring is visible in his left ear. Below the frame, he wears black slim-fit jeans, several silver rings on his fingers, and worn black combat boots.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/塞巴斯蒂安.png",
+  "ref_changed": [
+   "Hair color updated from 'straight black' to 'deep charcoal-black with cool blue undertones' to match the iconic in-game shading.",
+   "Hair texture updated from 'straight' to 'slightly messy/textured' to reflect the pixel art's volume.",
+   "Top garment changed from 'black zip-up motorcycle jacket' to 'dark navy blue/black hoodie' as seen in the sprite.",
+   "Added 'silver hoop earring' which is a key visual detail in the character's pixel art."
+  ]
+ },
+ {
+  "name": "威利",
+  "positioning_cn": "星露谷老渔夫:码头的钓鱼传说",
+  "face_dna": "A weathered old fisherman in his sixties with a round face and sea-eroded ruddy skin. He has a bushy, fluffy iron-gray beard and messy gray hair peeking out from under a worn tan canvas fishing bucket hat. His eyes are a clear, striking sky blue, carrying a gentle, weathered kindly expression with deep crinkles at the corners.",
+  "outfit_dna": "He is wearing a bright scarlet red heavy cable-knit sweater with a thick ribbed texture as the primary top layer. The lower body retains the high-waisted olive green waders and heavy black rubber boots. An old worn pipe and a metal tackle box rest beside him, maintaining the seasoned maritime atmosphere.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/威利.png",
+  "ref_changed": [
+   "Changed top from yellow slicker to red cable-knit sweater",
+   "Added specific blue eye color (sky blue)",
+   "Refined hat color to tan/canvas brown",
+   "Emphasized the bushy/fluffy texture of the gray beard"
+  ]
+ },
+ {
+  "name": "山姆",
+  "positioning_cn": "星露谷活力系男主:滑板乐队少年",
+  "face_dna": "A handsome young man in his early twenties with striking, vibrant sunflower-gold hair styled in a voluminous, layered cut that is swept back and slightly spiky. He has clear, bright blue eyes and a fair complexion with a defined jawline. His expression is cool and confident, featuring a neutral to faintly self-assured look with closed lips and a direct gaze, embodying an energetic yet laid-back skater vibe.",
+  "outfit_dna": "He is wearing a vivid electric-blue zip-up hoodie or jacket with the collar slightly raised, revealing a bright yellow shirt underneath at the neckline. A thin silver chain necklace is visible around his neck. (Lower body retained from original: ripped slim jeans, colorful skateboard sneakers, with a yellow skateboard leaning beside him).",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/山姆.png",
+  "ref_changed": [
+   "Hair color refined to 'vibrant sunflower-gold' and style updated to 'voluminous layered cut swept back' to match the specific pixel art shape.",
+   "Expression changed from 'playful skater grin' to 'cool, confident neutral expression' to match the closed-mouth pixel portrait.",
+   "Outfit details specified as 'electric-blue jacket/hoodie' with visible 'yellow inner collar' and added 'thin chain necklace' based on pixel details."
+  ]
+ },
+ {
+  "name": "帕姆",
+  "positioning_cn": "星露谷大巴司机:帕姆阿姨的豪爽与落魄",
+  "face_dna": "a gruff broad-shouldered woman in her fifties with voluminous, fluffy golden-blonde curly hair reaching her shoulders with a retro textured look, ruddy weathered skin with deep-set tired laugh lines, sharp blue eyes, prominent dark defined brows, and a determined, slightly weary expression",
+  "outfit_dna": "a soft magenta-purple turtleneck zip-up sweater as the visible top layer, paired with durable jeans and heavy work boots, holding a well-used bus driver cap in hand",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/帕姆.png",
+  "ref_changed": [
+   "Hair changed from 'bleach-blonde choppy short hair' to 'volumetric fluffy golden-blonde shoulder-length curly hair'",
+   "Top changed from 'faded plum-purple shirt under denim vest' to 'magenta-purple turtleneck zip-up sweater'",
+   "Added specific eye color (blue) and eyebrow details based on portrait"
+  ]
+ },
+ {
+  "name": "德米特里厄斯",
+  "positioning_cn": "星露谷科学家:山上实验室的父亲",
+  "face_dna": "A middle-aged Black scientist with deep brown skin and short, neatly groomed dark brown hair. He has a serious, intellectual expression characterized by a well-maintained dark goatee and mustache. He wears thick, black rectangular glasses that frame his focused, analytical dark eyes. His demeanor is stern, professional, and deeply academic.",
+  "outfit_dna": "He is dressed in a vibrant cobalt blue turtleneck shirt featuring a distinct ruffled or pleated collar detail. Over the shirt, he wears a sleeveless violet-purple knit vest or sweater. He retains his khaki trousers, presenting a look that is both scholarly and field-ready.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/德米特里厄斯.png",
+  "ref_changed": [
+   "Added specific facial hair: dark goatee and mustache (missing in original)",
+   "Changed outfit to a blue ruffled turtleneck under a purple sleeveless vest (original incorrectly had a lavender button-up and grey blazer)",
+   "Refined expression from 'warm' to 'serious/stern' to match the pixel art's focused gaze",
+   "Removed the 'field notebook' and 'blazer' details not present in the sprite"
+  ]
+ },
+ {
+  "name": "拉斯莫迪乌斯",
+  "positioning_cn": "星露谷法师:塔楼里的隐世魔法师",
+  "face_dna": "arcane old wizard in his sixties with dark, slightly purplish-toned skin, messy spiky deep violet hair falling over his forehead, a thick deep violet handlebar mustache and matching beard, deep-set piercing amber-yellow eyes peering through the bangs, a serious and enigmatic expression",
+  "outfit_dna": "a wide-brimmed black wizard hat featuring a gold circular mystical sigil on the front, a high-collared deep purple (near-black) robe with delicate gold trim along the neckline, a rope belt hung with pouches of reagents, worn leather boots",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/拉斯莫迪乌斯.png",
+  "ref_changed": [
+   "Hair color changed from silver-white to deep violet; style changed from flowing to messy and spiky.",
+   "Skin tone changed from pale/gaunt to dark with purplish undertones.",
+   "Facial hair changed from a flowing beard to a thick deep violet mustache and beard.",
+   "Eye color updated to amber-yellow to match the pixel art's contrast.",
+   "Outfit updated to include the specific wide-brimmed black hat with a gold symbol and the high gold-trimmed collar visible in the bust shot."
+  ]
+ },
+ {
+  "name": "桑迪",
+  "positioning_cn": "星露谷沙漠店主:绿洲商会的神秘美人",
+  "face_dna": "a mysterious desert shopkeeper in her thirties with fair porcelain skin, vibrant magenta-pink hair styled in a voluminous high ponytail with curly loose strands, striking teal-green eyes, gold hoop earrings, an enigmatic warm smile with red-painted lips",
+  "outfit_dna": "a rich royal-blue high-necked top or hood wrapped closely around the neck and shoulders, paired with a flowing turquoise-and-rust patterned desert dress, layered bead necklaces, and embroidered sandals",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/桑迪.png",
+  "ref_changed": [
+   "Hair color changed from golden-blonde to vibrant magenta-pink",
+   "Hair style changed from tucked beneath a headscarf to a voluminous high ponytail",
+   "Upper outfit changed from patterned dress to a solid royal-blue high-necked top/hood"
+  ]
+ },
+ {
+  "name": "海莉",
+  "positioning_cn": "星露谷时尚系女主:爱拍照的甜心辣妹",
+  "face_dna": "fashionable young woman in her early twenties with long volumetric bright golden-blonde hair in loose bouncy waves and side-swept bangs, vivid cerulean blue eyes, fair warm-toned porcelain skin, a cool, slightly aloof and chic expression with a neutral closed-mouth pout",
+  "outfit_dna": "a vibrant sapphire blue off-the-shoulder top exposing the collarbones and shoulders, a delicate thin gold chain necklace around the neck, light denim skirt, pink sandals",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/海莉.png",
+  "ref_changed": [
+   "Hair changed from silky golden-blonde to volumetric bright golden-blonde with loose waves/bangs",
+   "Expression changed from bubbly confident smile to a cool, slightly aloof and chic neutral look",
+   "Top changed from pink cropped cardigan/white camisole to a vibrant blue off-the-shoulder top",
+   "Added a delicate gold chain necklace visible on the neck"
+  ]
+ },
+ {
+  "name": "潘妮",
+  "positioning_cn": "",
+  "face_dna": "A young woman with shoulder-length warm auburn (golden-orange) hair styled in a loose, slightly voluminous side ponytail on her right side, accompanied by light wispy bangs. She has bright, soft cyan-green eyes, a fair heart-shaped face with a healthy flush, and a gentle, sweet smile that conveys an innocent and approachable temperament.",
+  "outfit_dna": "She is wearing a pale yellow (lemon-yellow) button-up shirt featuring a matching peter-pan collar. The lower body retains the original description of brown leather ankle boots.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/潘妮.png",
+  "ref_changed": [
+   "Hair color: Revised from 'strawberry-blonde' to 'warm auburn/golden-orange' to match the pixel art's distinct orange-yellow tone.",
+   "Hairstyle: Revised from 'long low side braid' to 'shoulder-length loose side ponytail' as the art shows a shorter, bundled style rather than a long woven braid.",
+   "Outfit color: Revised from 'sage-green dress' to 'pale yellow shirt' to strictly match the yellow clothing shown in the provided portrait."
+  ]
+ },
+ {
+  "name": "玛妮",
+  "positioning_cn": "星露谷牧场主:养牛大姐的温柔",
+  "face_dna": "A warm curvy rancher woman in her forties with vibrant auburn-red hair styled in a thick side braid draped over her shoulder, fair skin with prominent rosy blush on the cheeks, gentle brown eyes, and a motherly earthy smile.",
+  "outfit_dna": "A cozy olive-green turtleneck knit top layered under a textured red sleeveless vest or jumper; below the chest, she wears denim overalls with leather work gloves tucked into a pocket and rubber farm boots.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/玛妮.png",
+  "ref_changed": [
+   "Hair color changed from honey-brown to auburn/red",
+   "Hair style changed from wavy shoulder-length to thick side braid",
+   "Outfit updated to include a red sleeveless vest over the green top"
+  ]
+ },
+ {
+  "name": "玛鲁",
+  "positioning_cn": "星露谷理工系女主:天文台发明家少女",
+  "face_dna": "A curious young woman in her early twenties with warm, reddish-brown skin and thick, shoulder-length auburn hair styled in a soft bob with subtle layers and side-swept bangs. She wears round-rimmed glasses that frame her deep, vivid violet eyes, giving her a focused, intellectual expression with a calm and slightly inquisitive gaze.",
+  "outfit_dna": "A vibrant cobalt blue long-sleeved shirt featuring a prominent mustard-yellow collar or inner lining at the neckline, worn under sturdy blue denim or canvas overalls. Below the frame, she retains her practical cargo pants and durable sneakers, maintaining a functional, mechanic-ready aesthetic.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/玛鲁.png",
+  "ref_changed": [
+   "Hair color changed from black to auburn/reddish-brown",
+   "Hair style changed from short ponytail with headband to shoulder-length bob with bangs",
+   "Eye color changed from amber to violet",
+   "Added round-rimmed glasses as a key facial feature",
+   "Outfit changed from mustard-yellow knit top to blue shirt with yellow trim and blue overalls"
+  ]
+ },
+ {
+  "name": "皮埃尔",
+  "positioning_cn": "星露谷杂货店老板:镇上的小商人",
+  "face_dna": "A neat shopkeeper man in his forties with medium-length, slicked-back auburn hair with slight volume, a well-trimmed brown mustache, and a defined jawline. He has bright blue irises and wears a pair of professional, stylish rectangular thin-framed glasses. His expression is a confident, slightly cunning, and charismatic merchant smile that suggests a shrewd business mind, with a fair skin tone.",
+  "outfit_dna": "Wearing a textured, well-fitted brown leather or heavy canvas jacket with wide lapels over a vibrant cobalt blue shirt. The lower half consists of dark pressed trousers and classic comfortable black store shoes as per the original profile.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/皮埃尔.png",
+  "ref_changed": [
+   "Hair color and style: changed from 'short brown hair' to 'medium-length, slicked-back auburn hair'",
+   "Eyes and accessories: changed from 'small shrewd brown eyes' to 'bright blue eyes with rectangular glasses'",
+   "Upper body clothing: changed from 'crisp white shirt with green apron' to 'brown jacket over a blue shirt'"
+  ]
+ },
+ {
+  "name": "罗宾",
+  "positioning_cn": "星露谷木匠大姐:山顶工坊的当家人",
+  "face_dna": "A strong, capable woman in her forties with vivid copper-orange hair styled in a voluminous high ponytail or half-updo with side-swept bangs, dark brown eyes, and fair healthy skin with a natural flush; she has a warm, confident, and resolute expression that exudes a hearty welcoming aura, maintaining a sturdy carpenter build.",
+  "outfit_dna": "A thick olive-green utility hooded jacket featuring a textured, fur-lined or heavy-ribbed collar, worn over a mustard-yellow turtleneck or shirt; the lower body remains in straight-cut jeans tucked into scuffed work boots, anchored by a worn leather tool belt around the waist.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/罗宾.png",
+  "ref_changed": [
+   "Hairstyle: Changed from 'chin-length bob' to 'shoulder-length hair tied in a high ponytail/half-updo with bangs'",
+   "Top wear: Changed from 'olive work shirt over white tee' to 'olive hooded jacket with fur-lined collar over a yellow inner shirt'"
+  ]
+ },
+ {
+  "name": "艾利欧特",
+  "positioning_cn": "星露谷文艺系男主:海滩木屋里的浪漫小说家",
+  "face_dna": "A refined man in his late twenties with long, unbound copper-red wavy hair cascading naturally over his shoulders and chest, fair porcelain skin, and sharp, contemplative facial features. He possesses deep amber or dark hazel eyes that convey a melancholic, intellectual intensity, maintaining a romantic yet slightly aloof literary aura.",
+  "outfit_dna": "A textured burgundy or rust-red jacket with a structured collar, worn over a shirt featuring a vibrant emerald green inner lining or scarf that provides a sharp color contrast. The lower body retains tailored brown trousers and polished leather boots as per the original character design.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/艾利欧特.png",
+  "ref_changed": [
+   "Hair style changed from 'tied loosely at the nape' to 'unbound/cascading over shoulders' to match the pixel art.",
+   "Coat color changed from 'teal velvet' to 'burgundy/rust-red' to match the pixel art.",
+   "Shirt detail changed from 'ruffled white poet shirt' to 'shirt with emerald green inner lining' to match the visible green collar in the pixel art."
+  ]
+ },
+ {
+  "name": "艾米丽",
+  "positioning_cn": "",
+  "face_dna": "A young woman with vibrant dyed electric blue hair, styled in a long straight cut with neat, blunt bangs covering the forehead. She has fair skin, large expressive teal-blue eyes, and a gentle, ethereal smile that conveys a kind, dreamy, and slightly whimsical personality.",
+  "outfit_dna": "A simple, modest red or burnt orange button-up shirt with a soft collar and cotton texture. (Lower body retained from original: a layered orange-red patchwork bohemian skirt). Note: The pixel art strictly shows a red collared top, lacking the previously described turquoise blouse or visible beaded jewelry.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/艾米丽.png",
+  "ref_changed": [
+   "Hair color refined to 'vibrant electric blue' to match the high-saturation pixel color",
+   "Outfit top changed from 'turquoise bohemian blouse' to 'simple red/burnt orange collared shirt' to match the sprite",
+   "Removed 'beaded necklaces and bracelets' as they are not present in the provided portrait sprite"
+  ]
+ },
+ {
+  "name": "莉亚",
+  "positioning_cn": "",
+  "face_dna": "A young woman with vibrant auburn chin-length wavy hair, characterized by a distinct side-parting and a prominent, bouncy curled strand on the right side. She has striking, clear sapphire-blue eyes that contrast with her fair skin and light dusting of natural freckles across her nose and cheeks. Her expression is gentle and warmly inviting, featuring a soft, sincere smile that conveys an artistic and approachable temperament.",
+  "outfit_dna": "She is wearing a bright grass-green button-up shirt with a neat collar, layered over or paired with a casual brown skirt that shows subtle signs of paint stains from her craft. She wears small, simple circular earrings that catch the light, maintaining a practical yet stylish look suitable for an artist.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/莉亚.png",
+  "ref_changed": [
+   "瞳色: 从 'warm brown' (暖棕色) 修订为 'sapphire-blue' (宝蓝色)，以匹配立绘特征",
+   "发型细节: 强调了右侧标志性的 'prominent curled strand' (突出卷发束)",
+   "上衣描述: 从 'olive-green artist smock' (橄榄绿围裙) 修订为 'bright grass-green button-up shirt' (亮绿色衬衫)，更贴合立绘的领口与色调"
+  ]
+ },
+ {
+  "name": "莫里斯",
+  "positioning_cn": "星露谷反派示人:Joja商务经理",
+  "face_dna": "A middle-aged corporate manager in his forties with deep chestnut, slightly voluminous slicked-back hair, wearing distinctive thin round-rimmed glasses. He has bright icy-blue eyes, a pale complexion, and a wide, overly enthusiastic insincere salesman smile that reveals a row of white teeth.",
+  "outfit_dna": "A sharp, well-tailored navy-blue Joja corporate suit jacket worn over a crisp white collared shirt. He wears a vibrant solid red tie instead of blue, with a clearly visible square Joja name badge pinned to the left side of his chest. He wears polished black leather shoes.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/莫里斯.png",
+  "ref_changed": [
+   "Hair color changed from chestnut to deep chestnut/dark brown with more volume",
+   "Added round-rimmed glasses and blue eye color",
+   "Tie color corrected from light blue to vibrant red",
+   "Inner shirt specified as crisp white"
+  ]
+ },
+ {
+  "name": "莱纳斯",
+  "positioning_cn": "星露谷隐士:山间帐篷里的善良老人",
+  "face_dna": "weathered kind-hearted hermit in his sixties with deeply tanned leathery skin, a full head of long messy silver-white hair, a thick voluminous grey-white beard and mustache covering the lower face, gentle humble dark eyes, wiry build",
+  "outfit_dna": "a thick knitted sweater or flannel shirt featuring a prominent orange and golden-yellow diamond argyle pattern, fingerless gloves, sturdy old boots, a simple cloth satchel",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/莱纳斯.png",
+  "ref_changed": [
+   "Hair changed from 'mostly bald' to 'long messy silver-white hair'",
+   "Added 'thick voluminous grey-white beard and mustache'",
+   "Visible top changed from 'patched heavy brown canvas coat' to 'orange and golden-yellow diamond argyle pattern sweater'"
+  ]
+ },
+ {
+  "name": "谢恩",
+  "positioning_cn": "星露谷救赎系男主:借酒消愁的Joja职员",
+  "face_dna": "A weary young man in his late twenties with short, messy deep chestnut brown hair featuring subtle cool-toned highlights and heavy bangs falling over his forehead; large, expressive pale blue eyes that carry a melancholic, guarded, and defensive gaze; pale and slightly sallow skin tone with a defined jawline showing light stubble.",
+  "outfit_dna": "Wearing a vibrant cyan-blue zip-up hoodie with the hood resting loosely around his shoulders, layered over a bright lime-green crew-neck t-shirt that features a prominent white letter 'J' (Joja logo) on the chest; lower body consists of worn dark jeans and scuffed work boots as per original context.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/谢恩.png",
+  "ref_changed": [
+   "Updated outfit from 'gray tee & blue vest' to 'green t-shirt with 'J' logo & blue hoodie' to match the specific sprite",
+   "Refined hair description to include 'heavy bangs' and 'cool-toned highlights' visible in the pixel art",
+   "Specified eye color as 'pale blue' with a 'melancholic' quality to match the character's iconic look"
+  ]
+ },
+ {
+  "name": "阿比盖尔",
+  "positioning_cn": "",
+  "face_dna": "A realistic close-up portrait of a young woman featuring voluminous, dyed deep violet hair with distinct layers and soft side-swept bangs, styled in a natural, slightly tousled manner without any hair accessories. She has pale, fair skin and large, expressive turquoise-blue eyes that gaze with a calm, quiet curiosity rather than mischief. Her face is round and youthful, carrying a gentle, subtle smile that feels approachable and serene.",
+  "outfit_dna": "She is wearing a thick, textured dark purple or charcoal hooded jacket (hoodie style) with a visible hood and zipper detail, replacing the layered vest look. The outfit maintains the adventurous vibe with a dark mini skirt and sturdy brown leather adventure boots as seen in the lower body description.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/阿比盖尔.png",
+  "ref_changed": [
+   "Removed the 'small bow hair clip' and refined hairstyle to 'voluminous/layered' to match the pixel art's fluffy texture.",
+   "Changed eye color from 'violet' to 'turquoise-blue' (more accurate to official art) and shifted expression from 'mischievous/playful' to 'calm/curious'.",
+   "Corrected upper garment from 'royal-blue sleeveless vest over black top' to a 'dark purple/charcoal hooded jacket/hoodie' to match the visual evidence of the collar/hood."
+  ]
+ },
+ {
+  "name": "马隆",
+  "positioning_cn": "星露谷冒险家工会:独眼老佣兵",
+  "face_dna": "A weathered old adventurer in his sixties with a stern, vigilant expression and a stalwart mercenary demeanor. He has short, messy, volumetric silver-white hair with subtle darker roots, paired with a thick, well-groomed grayish-white goatee and mustache. His left eye is covered by a rough, white cloth eyepatch or heavy bandage, while his visible right eye is deep and piercing dark brown. He has a pale, rugged skin texture with a prominent brow.",
+  "outfit_dna": "He wears a deep forest-green high-necked under-tunic or shirt, draped with a heavy, textured maroon adventurer's cloak or mantle over his left shoulder. A simple leather cord necklace is visible around his neck. Retaining the lower body details: sturdy travel boots and a greatsword sheathed on his back, maintaining a battle-ready silhouette.",
+  "portrait": "/home/sunchendd/Desktop/suncut/stardew_refs/马隆.png",
+  "ref_changed": [
+   "Hair changed from 'long gray-streaked dark hair tied back' to 'short, messy, volumetric silver-white hair'",
+   "Eyepatch changed from 'iron eyepatch' to 'white cloth eyepatch or heavy bandage'",
+   "Added specific 'thick grayish-white goatee and mustache'",
+   "Outfit top changed from 'studded battle tunic/maroon leather pauldron' to 'deep forest-green high-necked tunic with maroon cloak'"
+  ]
+ }
+]

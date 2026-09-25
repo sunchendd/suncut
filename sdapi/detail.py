@@ -132,11 +132,14 @@ def project_detail(name):
         for p in sorted(proj.path.iterdir()):
             if p.is_file() and p.suffix.lower() in DELIVER_EXTS:
                 deliverables.append(_file_dto(p))
-        for sub in ("master", "regen"):
+        # D6 目录优化后: 结构化产物在子目录里(老项目顶层文件继续可见)
+        for sub, exts in (("deliver", {".mp4"}), ("master", {".mp4"}),
+                          ("regen", {".mp4"}), ("audio", {".mp3", ".wav", ".mp4"}),
+                          ("subtitles", {".srt"})):
             d = proj.path / sub
             if d.exists():
                 for p in sorted(d.iterdir()):
-                    if p.is_file() and p.suffix.lower() == ".mp4":
+                    if p.is_file() and p.suffix.lower() in exts:
                         deliverables.append(_file_dto(p))
 
     gen_logs = []
@@ -158,10 +161,15 @@ def project_detail(name):
 
     return {"name": name, "created": state.get("created"), "shots": state.get("shots"),
             "brief": brief,
+            "settings": {"orientation": state.get("orientation", "landscape"),
+                         "resolution": state.get("resolution", "1080p")},
+            "assets_pick": _read_json(proj.path / "assets.json")
+                           or {"scenes": [], "props": []},
             "stages": state.get("stages", {}),
             "cast": proj.load_stage("cast") or {},
             "materials": proj.load_stage("materials") or {},
             "script": script, "storyboard": sb, "generate": generate,
+            "dub": proj.load_stage("dub") or {},
             "review": review, "human": human,
             "review_stale": ("review" not in (state.get("stages") or {})
                              and bool(review.get("results"))),

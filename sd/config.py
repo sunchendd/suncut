@@ -1,5 +1,6 @@
 """shortdrama 全局配置 —— 所有机器相关路径与冻结参数集中在此."""
 import json
+import os
 from pathlib import Path
 
 # ── 本机路径 ──
@@ -7,6 +8,7 @@ HOME = Path("/home/sunchendd")
 SOL_PKG = HOME / ".zcode/workspace/default/Sana/models/minimax_h3/Sol-H3-Spark"
 RUNTIME = HOME / "sol-h3-spark-runtime"
 WORKSHOP = HOME / "桌面/AI角色工坊"
+ASSET_LIB = HOME / "桌面/短剧资产库"         # 道具/场地 跨项目复用库
 DESKTOP = HOME / "桌面"
 FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = FRAMEWORK_ROOT / "projects"
@@ -17,7 +19,9 @@ ZHIPU_KEY_FILE = HOME / ".zcode/v2/provider_config.json"
 LLM_BASE = "https://open.bigmodel.cn/api/coding/paas/v4"
 LLM_TEXT = "glm-5.3"          # 编剧/分镜,重质量
 LLM_FAST = "glm-5.3-flash"    # 轻量步骤
-LLM_VISION = "glm-4.5v"       # 审片(支持图片输入)
+# 审片 VLM: glm-4.5v(默认,A/B 实测偏差最小);glm-5.3-flash 亦支持图片输入(更快但偏差略大,
+# 见 scripts/vision_ab.py)。切换: 环境变量 SD_VISION_MODEL=glm-5.3-flash 后重启服务。
+LLM_VISION = os.environ.get("SD_VISION_MODEL", "glm-4.5v")
 
 # ── 视频生成端硬约束(Sol-H3 冻结值) ──
 SHOT_FRAMES = 121
@@ -27,6 +31,26 @@ VIDEO_W, VIDEO_H = 1344, 768
 DEFAULT_BPM = 95                              # 每镜整 8 拍,剪点永远落在拍上
 CHAR_SEED_BASE = 42
 RETAKE_SEED_STEP = 1009                       # 单镜重拍换 seed 的步长(质数,避免撞)
+
+# ── 交付端:横竖屏与分辨率(生成端固定 1344x768,裁切/缩放在交付时做) ──
+RESOLUTIONS = {                               # name -> (横屏WxH, 竖屏WxH)
+    "1080p": ((1920, 1080), (1080, 1920)),
+    "720p": ((1280, 720), (720, 1280)),
+    "480p": ((854, 480), (480, 854)),
+}
+ORIENTATIONS = ("portrait", "landscape")      # 缺省 landscape(竖版=16:9中心裁切再放大,清晰度降太多,2026-09-25 定)
+
+# ── 配音(edge-tts;智谱 cogtts 在 Coding Plan 外需充值,故走本地免费链) ──
+EDGE_TTS = HOME / "venvs/sdapi/bin/edge-tts"  # 回退: PATH 里的 edge-tts
+TTS_VOICES = {                                # 配音师音色池(中文)
+    "旁白-沉稳男声": "zh-CN-YunyangNeural",
+    "旁白-温暖女声": "zh-CN-XiaoxiaoNeural",
+    "男-阳光少年": "zh-CN-YunxiNeural",
+    "男-低沉磁性": "zh-CN-YunjianNeural",
+    "女-清亮活泼": "zh-CN-XiaoyiNeural",
+    "女-知性温柔": "zh-CN-XiaoxiaoNeural",
+}
+NARRATOR_DEFAULT = "旁白-沉稳男声"
 
 # infer.py 容器环境(run-solh3.sh 同款)
 INFER_ENV = (

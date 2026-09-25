@@ -71,10 +71,13 @@ class NewProject(BaseModel):
     name: str
     brief: str
     shots: int = 4
+    orientation: str = "landscape"     # portrait | landscape(默认横屏:竖版裁切损失大)
+    resolution: str = "1080p"          # 1080p | 720p | 480p
 
 
 @app.post("/api/projects")
 def api_new_project(p: NewProject):
+    from sd import config as sd_config
     if not re.fullmatch(r"[\w\u4e00-\u9fff-]+", p.name):
         raise HTTPException(422, "项目名只能含中文/字母/数字/下划线/连字符")
     proj = Project(p.name)
@@ -82,7 +85,12 @@ def api_new_project(p: NewProject):
         raise HTTPException(409, f"项目已存在: {p.name}")
     if not p.brief.strip():
         raise HTTPException(422, "brief 不能为空")
-    proj.create(p.brief, max(1, min(p.shots, 12)))
+    if p.orientation not in sd_config.ORIENTATIONS:
+        raise HTTPException(422, f"orientation 只能是 {list(sd_config.ORIENTATIONS)}")
+    if p.resolution not in sd_config.RESOLUTIONS:
+        raise HTTPException(422, f"resolution 只能是 {list(sd_config.RESOLUTIONS)}")
+    proj.create(p.brief, max(1, min(p.shots, 12)),
+                orientation=p.orientation, resolution=p.resolution)
     return {"ok": True, "name": p.name}
 
 
@@ -117,6 +125,7 @@ def api_config():
             "projects": str(sd_config.PROJECTS),
             "runtime": str(sd_config.SD_RUNTIME),
             "workshop": str(sd_config.WORKSHOP),
+            "asset_lib": str(sd_config.ASSET_LIB),
             "desktop": str(sd_config.DESKTOP),
             "models": {"text": sd_config.LLM_TEXT, "fast": sd_config.LLM_FAST,
                        "vision": sd_config.LLM_VISION},
@@ -136,10 +145,11 @@ class RunBody(BaseModel):
     advice: str = ""
     steps: int = 14
     seed: int | None = None
+    subs: bool = False              # deliver/master: 烧字幕
 
 
-PROJECT_OPS = {"cast", "materials", "script", "storyboard", "generate",
-               "review", "deliver", "master", "retake", "retake_failed", "regen",
+PROJECT_OPS = {"cast", "cast_manual", "materials", "script", "storyboard", "generate",
+               "review", "dub", "deliver", "master", "retake", "retake_failed", "regen",
                "produce", "pipeline"}
 
 
@@ -154,12 +164,15 @@ def api_run(name: str, b: RunBody):
         raise HTTPException(422, "缺少 case")
     ctx = {"name": name, "force": b.force, "mode": b.mode,
            "auto_retake": b.auto_retake, "case": b.case,
-           "advice": b.advice, "steps": b.steps, "seed": b.seed}
+           "advice": b.advice, "steps": b.steps, "seed": b.seed,
+           "subs": b.subs}
     title = OP_TITLES.get(b.op, b.op)
     if b.case:
         title += f" {b.case}"
     if b.force:
         title += " (force)"
+    if b.subs and b.op in ("deliver", "master"):
+        title += " 📝"
     fn, gpu, tail = build_op(b.op, ctx)
     job = manager.submit(b.op, title, fn, project=name, gpu=gpu,
                          pausable=(b.op == "pipeline"), tail_gen=tail)
@@ -283,7 +296,74 @@ def api_audition_batch(b: BatchBody):
                               "direct_sign": b.direct_sign})
     n = max(1, min(b.count, 10))
     job = manager.submit("audition.batch",
-                         f"批量签约{'入库' if b.direct_sign else '试镜'} ×{n}", fn, gpu=gpu, tail_gen=tail)
+                         f"批量签约{'入库' if b.direct_sign else '试镜'} ×{n}", fn, gpu=gpu)
+    return {"job_id": job.id, "job": job.dto()}
+
+
+class SignCardsBody(BaseModel):
+    cards: list[dict]                # [{name, positioning_cn, face_dna, outfit_dna, seed?, look?}]
+
+
+@app.post("/api/audition/sign-cards")
+def api_audition_sign_cards(b: SignCardsBody):
+    """按既定名单批量签约(卡直入全链;look=game 为游戏还原外观模式)."""
+    import re as _re
+    if not b.cards:
+        raise HTTPException(422, "cards 为空")
+    if len(b.cards) > 40:
+        raise HTTPException(422, "单批最多 40 人")
+    seen = set()
+    for c in b.cards:
+        if not _re.fullmatch(r"[\w\u4e00-\u9fff-]{1,24}", str(c.get("name", ""))):
+            raise HTTPException(422, f"非法 name: {c.get('name')!r}")
+        if c["name"] in seen:
+            raise HTTPException(422, f"名单重复: {c['name']}")
+        seen.add(c["name"])
+        if len(str(c.get("face_dna", ""))) < 40:
+            raise HTTPException(422, f"{c['name']} face_dna 过短(≥40 字符)")
+        if len(str(c.get("outfit_dna", ""))) < 20:
+            raise HTTPException(422, f"{c['name']} outfit_dna 过短(≥20 字符)")
+        if c.get("look") not in (None, "cn", "game"):
+            raise HTTPException(422, f"{c['name']} look 只能是 cn/game")
+    import random as _rand
+    cards = [{**c, "seed": int(c.get("seed") or _rand.randint(1_000_000, 9_999_999))}
+             for c in b.cards]
+    fn, gpu, tail = build_op("audition.sign_cards", {"cards": cards})
+    job = manager.submit("audition.sign_cards",
+                         f"按名单批量签约 ×{len(cards)}", fn, gpu=gpu)
+    return {"job_id": job.id, "job": job.dto()}
+
+
+class RefitBody(BaseModel):
+    plan: list[dict]               # [{name, positioning_cn?, face_dna, outfit_dna, portrait, seed?}]
+
+
+@app.post("/api/audition/refit")
+def api_audition_refit(b: RefitBody):
+    """按官方立绘批量重置演员参考图(VLM 精修 DNA + Qwen2.1 看图重出全套)."""
+    import re as _re
+    from pathlib import Path as _Path
+    if not b.plan:
+        raise HTTPException(422, "plan 为空")
+    if len(b.plan) > 40:
+        raise HTTPException(422, "单批最多 40 人")
+    seen = set()
+    for c in b.plan:
+        if not _re.fullmatch(r"[\w\u4e00-\u9fff-]{1,24}", str(c.get("name", ""))):
+            raise HTTPException(422, f"非法 name: {c.get('name')!r}")
+        if c["name"] in seen:
+            raise HTTPException(422, f"名单重复: {c['name']}")
+        seen.add(c["name"])
+        if len(str(c.get("face_dna", ""))) < 40:
+            raise HTTPException(422, f"{c['name']} face_dna 过短")
+        if len(str(c.get("outfit_dna", ""))) < 20:
+            raise HTTPException(422, f"{c['name']} outfit_dna 过短")
+        p = c.get("portrait")
+        if not p or not _Path(p).exists():
+            raise HTTPException(422, f"{c['name']} portrait 不存在: {p}")
+    fn, gpu, tail = build_op("audition.refit", {"plan": b.plan})
+    job = manager.submit("audition.refit",
+                         f"按立绘批量重置 ×{len(b.plan)}", fn, gpu=gpu)
     return {"job_id": job.id, "job": job.dto()}
 
 
@@ -405,6 +485,176 @@ def api_human_review(name: str, b: HumanBody):
     f.write_text(json.dumps(data, ensure_ascii=False, indent=1))
     bus.publish("project", name=name)
     return {"ok": True, "human": data[b.case]}
+
+
+# ================================================================ 资产库(道具/场地)
+@app.get("/api/assets")
+def api_assets_list(kind: str | None = None):
+    from sd import assetlib
+    kinds = [kind] if kind else list(assetlib.KINDS)
+    if kind and kind not in assetlib.KINDS:
+        raise HTTPException(422, f"kind 只能是 {list(assetlib.KINDS)}")
+    return {k: assetlib.list_assets(k) for k in kinds}
+
+
+class AssetBody(BaseModel):
+    kind: str
+    asset: dict
+
+
+@app.post("/api/assets")
+def api_assets_save(b: AssetBody):
+    from sd import assetlib
+    try:
+        a = assetlib.save(b.kind, b.asset)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    bus.publish("assets", kind=b.kind)
+    return {"ok": True, "asset": a}
+
+
+@app.delete("/api/assets/{kind}/{asset_id}")
+def api_assets_delete(kind: str, asset_id: str):
+    from sd import assetlib
+    try:
+        assetlib.remove(kind, asset_id)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(404, str(e))
+    bus.publish("assets", kind=kind)
+    return {"ok": True}
+
+
+class AssetsPickBody(BaseModel):
+    scenes: list[str] = []
+    props: list[str] = []
+
+
+@app.post("/api/projects/{name}/assets")
+def api_assets_pick(name: str, b: AssetsPickBody):
+    """项目预选场地/道具(服化道阶段前挑库;锁定场地逐字复用)."""
+    proj = Project(name)
+    if not proj.exists():
+        raise HTTPException(404, "项目不存在")
+    from sd import assetlib
+    for sid in b.scenes:
+        if not assetlib.get("scene", sid):
+            raise HTTPException(404, f"场地不存在: {sid}")
+    for pid in b.props:
+        if not assetlib.get("prop", pid):
+            raise HTTPException(404, f"道具不存在: {pid}")
+    pick = proj.save_assets_pick(b.scenes[:4], b.props[:6])
+    bus.publish("project", name=name)
+    warn = ""
+    if proj.stage_done("materials"):
+        warn = "服化道已生成;预选要在服化道面板 force 重跑才生效"
+    return {"ok": True, "pick": pick, "warning": warn}
+
+
+# ================================================================ 手动选角 / 项目设置 / BGM
+class ManualCastBody(BaseModel):
+    cast: list[dict]            # [{story_role, char, reason?, wardrobe_note?}] ×1-2
+
+
+@app.post("/api/projects/{name}/cast")
+def api_manual_cast(name: str, b: ManualCastBody):
+    from sd import pool as sd_pool
+    proj = Project(name)
+    if not proj.exists():
+        raise HTTPException(404, "项目不存在")
+    if not 1 <= len(b.cast) <= 2:
+        raise HTTPException(422, "选角 1-2 人")
+    chars = {c["name"] for c in sd_pool.scan_all()}
+    bad = [c.get("char") for c in b.cast if c.get("char") not in chars]
+    if bad:
+        raise HTTPException(404, f"演员库没有: {bad}")
+    dup = len({c.get("char") for c in b.cast}) != len(b.cast)
+    if dup:
+        raise HTTPException(422, "选角重复")
+    fn, gpu, tail = build_op("cast_manual", {"name": name, "cast": b.cast})
+    names = "、".join(c["char"] for c in b.cast)
+    job = manager.submit("cast_manual", f"手动选角 · {names}", fn,
+                         project=name, gpu=gpu, tail_gen=tail)
+    return {"job_id": job.id, "job": job.dto()}
+
+
+class SettingsBody(BaseModel):
+    orientation: str | None = None
+    resolution: str | None = None
+
+
+@app.post("/api/projects/{name}/settings")
+def api_settings(name: str, b: SettingsBody):
+    from sd import config as sd_config
+    proj = Project(name)
+    if not proj.exists():
+        raise HTTPException(404, "项目不存在")
+    if b.orientation is not None and b.orientation not in sd_config.ORIENTATIONS:
+        raise HTTPException(422, f"orientation 只能是 {list(sd_config.ORIENTATIONS)}")
+    if b.resolution is not None and b.resolution not in sd_config.RESOLUTIONS:
+        raise HTTPException(422, f"resolution 只能是 {list(sd_config.RESOLUTIONS)}")
+    s = proj.update_settings(orientation=b.orientation, resolution=b.resolution)
+    bus.publish("project", name=name)
+    warn = "已交付过的话需重新交付才生效" if proj.stage_done("deliver") else ""
+    return {"ok": True, "settings": s, "warning": warn}
+
+
+@app.post("/api/projects/{name}/bgm")
+async def api_upload_bgm(name: str, request: Request):
+    """上传全片 BGM 替换文件(audio/bgm.*;配音/交付时循环铺底并侧链让路人声)."""
+    from fastapi.responses import JSONResponse
+    proj = Project(name)
+    if not proj.exists():
+        raise HTTPException(404, "项目不存在")
+    ct = (request.headers.get("content-type") or "").split(";")[0].strip()
+    ext = {"audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/wav": ".wav",
+           "audio/x-wav": ".wav", "audio/flac": ".flac", "audio/mp4": ".m4a",
+           "audio/x-m4a": ".m4a", "application/octet-stream": ".bin"}.get(ct)
+    if ext is None:
+        raise HTTPException(422, f"不支持的音频类型: {ct}(支持 mp3/wav/flac/m4a)")
+    body = await request.body()
+    if not body:
+        raise HTTPException(422, "空文件")
+    if len(body) > 80 << 20:
+        raise HTTPException(413, "文件过大(>80M)")
+    if ext == ".bin":                      # 探测法兜底: magic bytes
+        magic = body[:16]
+        ext = (".mp3" if magic[:3] == b"ID3" or (magic[:2] == b"\xff\xfb" or magic[:2] == b"\xff\xf3")
+               else ".wav" if magic[:4] == b"RIFF" else ".flac" if magic[:4] == b"fLaC"
+               else None)
+        if ext is None:
+            raise HTTPException(422, "无法识别的音频格式(支持 mp3/wav/flac/m4a)")
+    audio_dir = proj.path / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    for old in audio_dir.glob("bgm.*"):    # 替换式: 只保留一份
+        old.unlink()
+    f = audio_dir / f"bgm{ext}"
+    f.write_bytes(body)
+    import subprocess as _sp
+    r = _sp.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(f)], capture_output=True, text=True)
+    try:
+        dur = float(r.stdout.strip())
+    except ValueError:
+        f.unlink()
+        raise HTTPException(422, "不是有效的音频文件")
+    bus.publish("project", name=name)
+    return JSONResponse({"ok": True, "bgm": str(f), "duration": round(dur, 1),
+                         "note": "配音/交付时自动循环铺底;删除该文件即恢复视频原声"})
+
+
+@app.delete("/api/projects/{name}/bgm")
+def api_delete_bgm(name: str):
+    proj = Project(name)
+    if not proj.exists():
+        raise HTTPException(404, "项目不存在")
+    removed = False
+    audio_dir = proj.path / "audio"
+    if audio_dir.exists():
+        for old in audio_dir.glob("bgm.*"):
+            old.unlink()
+            removed = True
+    bus.publish("project", name=name)
+    return {"ok": True, "removed": removed}
 
 
 # ================================================================ 媒体与日志

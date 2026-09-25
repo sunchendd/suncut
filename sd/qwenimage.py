@@ -54,7 +54,10 @@ def crop_views(char_dir: Path, out_dir: Path):
 
 def gen_closeup(char: dict, out_dir: Path, steps=25, width=1024, height=1280,
                 seeds=None, pick_best=True):
-    """Qwen-Image-2.1 文生图锁脸特写. 多种子出候选,VLM 对照三视图选最像的一张."""
+    """Qwen-Image-2.1 文生图锁脸特写. 多种子出候选,VLM 对照三视图选最像的一张.
+
+    char 带 portrait(参考立绘路径)时走参考图条件生成,五官/发色/服装贴立绘。
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     dst = out_dir / "01_正面特写.png"
     face, outfit = char["face_dna"], char["outfit_dna"]
@@ -62,12 +65,18 @@ def gen_closeup(char: dict, out_dir: Path, steps=25, width=1024, height=1280,
               if "少年" not in face and "girl" not in face.lower()
               else "natural fresh complexion, lively curious expression")
     prompt = CLOSEUP_TMPL.format(face=face, outfit=outfit, makeup=makeup)
+    if char.get("portrait"):
+        prompt = ("Recreate the exact character from the reference portrait as a "
+                  "photorealistic live-action person for a film production, keeping the "
+                  "identical hairstyle, hair color, eye color, skin tone and outfit "
+                  "colors. " + prompt)
+    refs = [char["portrait"]] if char.get("portrait") else None
     seeds = seeds or [char.get("seed", 42) + off for off in (0, 777, 1234)][:3 if pick_best else 1]
     cands = []
     for s in seeds:
         c = out_dir / f"_closeup_cand_{s}.png"
         if not c.exists():
-            _gen_one(prompt, s, c, steps, width, height)
+            _gen_one(prompt, s, c, steps, width, height, ref_images=refs)
         cands.append((s, c))
     if not pick_best or len(cands) == 1:
         cands[0][1].rename(dst)
@@ -79,7 +88,18 @@ def gen_closeup(char: dict, out_dir: Path, steps=25, width=1024, height=1280,
     return dst
 
 
-def _gen_one(prompt, seed, dst, steps, width, height, neg=None, timeout=1800):
+def _gen_one(prompt, seed, dst, steps, width, height, neg=None, timeout=1800,
+             ref_images=None):
+    """文生图 / 参考图条件生成(ref_images=参考图路径列表时,Qwen2.1 原生看图还原)."""
+    ref_code = ""
+    if ref_images:
+        ref_code = ("from PIL import Image\n"
+                    "refs = [Image.open(" + repr(str(ref_images[0])) +
+                    ").convert('RGB').resize((512, 512))]\n"
+                    + "".join("refs.append(Image.open(" + repr(str(p)) +
+                              ").convert('RGB').resize((512, 512)))\n"
+                              for p in ref_images[1:]))
+    img_kw = "image=refs, " if ref_images else ""
     script = f"""
 import os, time, sys
 os.environ.setdefault("DIFFUSERS_ATTN_BACKEND", "_native_cudnn")
@@ -90,8 +110,9 @@ def _say(msg):
         pass
 def _cb(p, i, t, kw):
     if i % 5 == 0 or i == {steps} - 1:
-        _say(f"STEP {{i + 1}}/{{{steps}}} {{time.time() - _t0:.0f}}s")
+        _say(f"STEP {{i + 1}}/{{{steps}}} {{time.time() - _t0}}s")
     return kw   # diffusers 要求回调返回 callback_kwargs
+{ref_code}
 import torch
 torch.set_float32_matmul_precision("high")
 from diffusers import QwenImage21Pipeline
@@ -102,7 +123,7 @@ try:
     pipe.set_progress_bar_config(disable=True)
 except Exception: pass
 kw = dict(callback_on_step_end=_cb)
-out = pipe(prompt={prompt!r}, negative_prompt={neg or CLOSEUP_NEG!r}, true_cfg_scale=4.0,
+out = pipe(prompt={prompt!r}, {img_kw}negative_prompt={neg or CLOSEUP_NEG!r}, true_cfg_scale=4.0,
            height={height}, width={width}, num_inference_steps={steps},
            generator=torch.Generator("cuda").manual_seed({seed}), **kw)
 img = out.images[0] if hasattr(out, "images") else out[0][0]

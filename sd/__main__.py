@@ -25,6 +25,10 @@ def main(argv=None):
     p.add_argument("name")
     p.add_argument("--brief", required=True, help="故事梗概/一句话")
     p.add_argument("--shots", type=int, default=4)
+    p.add_argument("--orientation", default="landscape",
+                   choices=list(config.ORIENTATIONS), help="landscape横屏16:9(默认) | portrait竖屏9:16(裁切,清晰度降)")
+    p.add_argument("--resolution", default="1080p",
+                   choices=list(config.RESOLUTIONS), help="交付分辨率")
 
     p = sub.add_parser("produce")
     p.add_argument("name")
@@ -62,7 +66,7 @@ def main(argv=None):
     p = sub.add_parser("status")
     p.add_argument("name", nargs="?")
 
-    for st in ("cast", "materials", "script", "storyboard", "generate", "review", "deliver"):
+    for st in ("cast", "materials", "script", "storyboard", "generate", "review", "dub", "deliver"):
         p = sub.add_parser(st)
         p.add_argument("name")
         p.add_argument("--force", action="store_true")
@@ -73,8 +77,9 @@ def main(argv=None):
         proj = Project(a.name)
         if proj.exists():
             sys.exit(f"项目已存在: {proj.path}")
-        proj.create(a.brief, a.shots)
-        print(f"建项 {proj.path}\n下一步: python3 -m sd produce {a.name}")
+        proj.create(a.brief, a.shots,
+                    orientation=a.orientation, resolution=a.resolution)
+        print(f"建项 {proj.path} ({a.orientation}/{a.resolution})\n下一步: python3 -m sd produce {a.name}")
         return
     if a.cmd == "status":
         names = [a.name] if a.name else Project.list_all()
@@ -155,9 +160,11 @@ def main(argv=None):
     proj = Project(a.name)
     if not proj.exists():
         sys.exit(f"项目不存在: {a.name}")
+    from . import dubbing
     fn = {"cast": casting.run, "materials": materials.run, "script": screenwriter.run,
           "storyboard": storyboard.run, "generate": director.shoot,
-          "review": reviewer.review, "deliver": producer.deliver}[a.cmd]
+          "review": reviewer.review, "dub": dubbing.run,
+          "deliver": producer.deliver}[a.cmd]
     out = fn(proj, force=getattr(a, "force", False))
     if a.cmd == "review" and isinstance(out, dict):
         print(json.dumps({k: out[k] for k in ("passed", "total")}, ensure_ascii=False))

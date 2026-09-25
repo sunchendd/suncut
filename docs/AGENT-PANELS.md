@@ -1,6 +1,6 @@
-# 七个 Agent 的职责边界与网页功能抽象
+# 八个 Agent 的职责边界与网页功能抽象
 
-> 版本: v1.0 (2026-09-24)
+> 版本: v2.0 (2026-09-25,D 轮: 手动选角/服化道+资产库/台词/配音师/横竖屏/字幕)
 > 回答两个问题:① 每个 agent 的**责任与义务**是什么;② 由此抽象出工作台需要哪些网页功能。
 > 每个面板 = 看(agent 产物)+ 控(人工介入点)+ 重(force 重跑/定向操作)。
 
@@ -23,36 +23,41 @@
 
 **网页功能(① 招聘面板 + 演员库页)**:
 - 演员卡片: story_role、选角理由、服装备注、face/outfit DNA(折叠)、三视图图片;
-- `↻ 重新招聘(force)`(警示会换演员、下游需重跑);
+- **`🖐 手动选角`**(演员卡勾选 1-2 人 + 角色名;资料不全也可选,提交后自动补三视图)与
+  `🤖 让 agent 重新选(force)` 并列 —— 手动/智能双入口,数据形状完全一致;
+- 选角卡带「🖐 手动」徽标(reason=人工指定);
 - 演员库页: 全员网格、三视图完整度徽章(可开拍/资料不全)、角色 DNA 查看、
   `补三视图 buildrefs` / `转台参考集 turntable` 按钮(全局 GPU 任务);
 - brief 编辑入口(全片唯一人工输入的修改位)。
 
-## 2. 物料 materials —— 场景 DNA / 音乐块 / 道具
+## 2. 服化道 materials —— 场景 DNA / 音乐块 / 道具(资产库联动)
 
 | | |
 |---|---|
-| **责任** | 产 scenes[](场景 DNA 英文 + 点光源中文说明 + 道具)、b_roll 空镜、全片统一 95BPM 音乐块、风格注记 |
-| **义务** | DNA 必含点光源关键词(程序校验,违者 raise);音乐块逐字复用到每镜 prompt |
+| **责任** | 产 scenes[](中文名+场景 DNA 英文 + 点光源中文说明 + 道具)、b_roll 空镜、全片统一 95BPM 音乐块、风格注记;新产出自动归档资产库 |
+| **义务** | DNA 必含点光源关键词(程序校验,违者 raise);音乐块逐字复用到每镜 prompt;项目预选(assets.json)的场地 DNA **逐字锁定**(不经 LLM 改写),预选道具列为必用 |
 | **上游** | brief + cast | **下游**: 编剧(场景引用)/分镜(DNA 拼装) |
 
-**网页功能(② 物料面板)**:
-- 场景卡片墙: dna_en 全文、点光源徽章、道具 chips;
+**网页功能(② 服化道面板 + 资产库页)**:
+- 场景卡片墙: 场景中文名、dna_en 全文、点光源徽章、**「库锁定」徽章**(来自预选)、道具 chips;
 - 音乐块/风格注记专卡(强调"逐字复用、跨镜一致"的语义);
 - 空镜 B-Roll 列表(后续走 t2va 的预告);
-- `↻ 重新生成(force)`。
+- **`📦 预选资产`**(弹窗勾选场地≤4/道具≤6,保存进 assets.json,下次生成生效);
+- 本轮自动归档清单(新场景/新道具 chips);
+- `↻ 重新生成(force)`(锁定项保持);
+- **资产库页(#/assets)**: 场地/道具两组卡片,新增/编辑/删除;来源项目标注。
 
-## 3. 编剧 screenwriter —— 剧本与旁白
+## 3. 编剧 screenwriter —— 剧本、台词与旁白
 
 | | |
 |---|---|
-| **责任** | 产 script.json(title/logline/镜次表 shot_en+action_en+emotion_cn+narration_cn/结尾记忆点)+ narration.srt 字幕草稿 |
-| **义务** | 自评-修订闭环(flash 四维 hook/arc/narration/visual,任一<7 重写,≤2 轮);硬约束内置:5.04s/镜、动作≤3 节点、旁白≤25 字、禁手部特写/正面说话 |
-| **上游** | brief+cast+materials | **下游**: 分镜(dd 的创作源头) |
+| **责任** | 产 script.json(title/logline/镜次表 shot_en+action_en+emotion_cn+**dialogue_cn 台词**+narration_cn/结尾记忆点)+ subtitles/<名>.srt 字幕(台词+旁白合并) |
+| **义务** | 自评-修订闭环(flash 四维 hook/arc/narration(台词与旁白)/visual,任一<7 重写,≤2 轮);硬约束内置:5.04s/镜、动作≤3 节点、**台词每镜≤2 句每句≤18 字(画外音呈现,画面拍背影/侧脸,不对口型)**、台词+旁白合计≤25 字、旁白≤25 字、禁手部特写/正面说话 |
+| **上游** | brief+cast+materials | **下游**: 分镜(dd 的创作源头)、配音师(台词/旁白即配音稿) |
 
 **网页功能(③ 编剧面板)**:
 - 剧本头卡: 标题/一句话/结尾记忆点 + 自评四维分数条(达标线 7);
-- 镜次表: 场景/出场/情绪/旁白(≤25字列)/画面与动作(可展开 shot_en+action_en 全文);
+- 镜次表: 场景/出场/情绪/**台词/旁白合并列**(台词带角色名 chip)/画面与动作(可展开 shot_en+action_en 全文);
 - `⬇ 旁白字幕 SRT` 下载(剪映导入位);
 - `↻ 重写剧本(force)`。
 
@@ -101,33 +106,51 @@
 - **`人工通过` / `⛔ 否决并重拍`**(human.json 落盘;否决即弹重拍 modal 预填建议);
 - 分步流水线的**审片门**: 任务挂起在此,逐镜处置后「放行继续」才交付。
 
-## 7. 制片 producer —— 编排交付与复盘
+## 7. 配音师 dubbing —— 台词/旁白配音与配乐(新增)
 
 | | |
 |---|---|
-| **责任** | 全流程编排(produce: 含自动重拍≤2 轮);deliver=按剧本顺序选每镜历史最佳条(有全≥7 条优先)拼接横版 CRF17+竖版 1080×1920+PIL 封面+制作报告,桌面副本;master=ComfyUI SPAN×2 超分→1080p→CRF14;metrics 汇总 |
-| **义务** | 封面/报告失败不阻塞交付;三档质量阶梯按时效选档;交付物路径可追溯 |
+| **责任** | 台词/旁白 → edge-tts 分角色配音(音色由 LLM 按角色气质从 6 条中文音色池挑选)→ 全片 VO 音轨(vo_full.wav,时间轴与字幕逐槽对齐)+ 试听预览(当前最佳条×侧链混音) |
+| **义务** | 每段装不下时间槽自动提速重合成(≤+50%);产出只落 audio/(不碰视频),交付时按最新选条重混 —— **重拍换条不失效**;音频床响度统一 -17 LUFS、人声 -13 LUFS 侧链压制 |
+| **上游** | script(台词/旁白)+cast(音色气质) | **下游**: 制片(交付混音) |
+
+**网页功能(⑦ 配音师面板)**:
+- 音色分配卡(角色→音色,旁白单列);
+- VO 时间表(镜/说话人/音色/内容/起点/时长/逐段 ▶ 试听);
+- 配音预览视频(边看边听,标注「交付时按选条重混」);
+- **`🎵 上传 BGM`**(mp3/wav/flac/m4a;循环铺底+响度统一+人声让路;`🗑 移除 BGM` 恢复视频原声);
+- `↻ 重新配音(force)`。
+
+## 8. 制片 producer —— 编排交付与复盘
+
+| | |
+|---|---|
+| **责任** | 全流程编排(produce: 选角→服化道→编剧→分镜→开拍→审片[重拍≤2轮]→配音→交付);deliver=按剧本顺序选每镜历史最佳条(有全≥7 条优先)拼接→(配音产物侧链混入)→**按项目设置横/竖屏+分辨率**出片→PIL 封面+制作报告,deliver/ 目录+桌面副本;master=ComfyUI SPAN×2 超分→同设置 CRF14;metrics 汇总 |
+| **义务** | 配音失败不阻塞交付(原声直出);封面/报告失败不阻塞交付;三档质量阶梯按时效选档;交付物路径可追溯;**烧字幕选项**(subtitles/<名>.srt,libass+Noto Sans CJK,横竖屏均可) |
 | **上游** | 全部阶段 | **下游**: 桌面/发布 |
 
-**网页功能(⑦ 制片面板 + 仪表盘/任务中心)**:
-- `📦 交付成片(force 重选)` 与 `💎 母版超分`;
+**网页功能(⑧ 制片面板 + 仪表盘/任务中心)**:
+- `📝 自动字幕` 勾选 + `📦 交付成片(force 重选)` 与 `💎 母版超分`(横竖屏/分辨率跟随项目设置,面板副标题实时显示);
 - 交付选条表(每镜选中的是哪一条、判定);
 - 交付物墙: 成片播放器(横/竖版)+下载、封面图、制作报告/字幕文档查看下载;
 - 制作指标(metrics.txt 汇总: 各阶段耗时/秒每镜/过片率);
-- 仪表盘: 项目卡(七阶段进度条/审片通过率/忙碌态)+ 新建项目 + 一键全自动/分步流水线;
+- 仪表盘: 项目卡(八阶段进度条/审片通过率/忙碌态)+ 新建项目(**画幅/分辨率选择**)+ 一键全自动/分步流水线;
 - 任务中心: 全局任务表、实时日志抽屉、审批门的放行/取消。
 
-## 8. 面板 ↔ API ↔ 领域函数对照(实现索引)
+## 9. 面板 ↔ API ↔ 领域函数对照(实现索引)
 
 | 面板 | 主要 API | sd 领域函数 |
 |---|---|---|
-| ① 招聘 | GET detail.cast、POST run{op:cast}、/api/pool* | casting.run、pool.scan、qwenimage.buildrefs、turntable |
-| ② 物料 | GET detail.materials、POST run{op:materials} | materials.run |
-| ③ 编剧 | GET detail.script、POST run{op:script} | screenwriter.run |
+| ① 招聘 | GET detail.cast、POST run{op:cast}、**POST /cast(手动)**、/api/pool* | casting.run/**run_manual**、pool.scan、qwenimage.buildrefs、turntable |
+| ② 服化道 | GET detail.materials/**assets_pick**、POST run{op:materials}、**POST/资产库 API** | materials.run、assetlib.* |
+| ③ 编剧 | GET detail.script、POST run{op:script} | screenwriter.run(含 dialogue_cn) |
 | ④ 分镜 | GET detail.cases、POST /dd、POST run{op:storyboard} | storyboard.run、lint.lint_dd、director._rebuild_prompt |
 | ⑤ 导演 | GET detail.cases/gen_logs、POST run{op:generate/retake/regen} | director.shoot/retake、regen.run |
 | ⑥ 审片 | GET detail.cases(review/frames)、POST run{op:review}、POST review/human | reviewer.review、has_passing_take |
-| ⑦ 制片 | POST run{op:deliver/master/produce/pipeline}、GET detail.picks/deliverables/metrics | producer.deliver/deliver_master/produce、report.*、Metrics |
+| ⑦ 配音师 | GET detail.dub、POST run{op:dub}、**POST/DELETE bgm** | dubbing.run、av.mix_vo |
+| ⑧ 制片 | POST run{op:deliver/master/produce/pipeline,**subs**}、GET detail.picks/deliverables/metrics | producer.deliver/deliver_master/produce、av.*、report.*、Metrics |
+
+**资产库 API**: GET/POST /api/assets、DELETE /api/assets/{kind}/{id}、POST /api/projects/{n}/assets(预选);**设置 API**: POST /api/projects/{n}/settings(orientation/resolution)。
 
 ---
 

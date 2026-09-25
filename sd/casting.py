@@ -29,9 +29,36 @@ def run(proj, force=False):
 {{"cast": [{{"story_role": "主角", "char": "角色B_浅粉少女", "reason": "一句话", "wardrobe_note": "默认穿搭"}}],
  "extras_plan": "不需要群演的原因/空镜替代方案"}}"""
     data = llm.chat_json(config.LLM_TEXT, SYSTEM, user)
+    return _finalize(proj, data, chars)
+
+
+def run_manual(proj, cast):
+    """手动选角(工作台): cast = [{story_role, char, reason?, wardrobe_note?}] ×1-2.
+
+    允许选资料不全的演员(自动补三视图);数据形状与 LLM 选角完全一致,
+    后续物料/编剧/分镜零改动。
+    """
+    if not cast:
+        raise ValueError("手动选角至少 1 人")
+    chars = pool.scan_all()          # 手动模式放开 complete 限制,缺图自动补
+    if not chars:
+        raise RuntimeError(f"演员库为空: {config.WORKSHOP}")
+    data = {"cast": [], "extras_plan": "人工选角,无群演(空镜/画外音代替)"}
+    for c in cast[:2]:
+        if not (c.get("char") or "").strip():
+            raise ValueError("char 不能为空")
+        data["cast"].append({
+            "story_role": (c.get("story_role") or "").strip() or "主角",
+            "char": c["char"].strip(),
+            "reason": (c.get("reason") or "").strip() or "人工指定",
+            "wardrobe_note": (c.get("wardrobe_note") or "").strip() or "默认穿搭"})
+    return _finalize(proj, data, chars)
+
+
+def _finalize(proj, data, chars):
     names = []
     for role in data.get("cast", []):
-        c = pool.find(chars, role["char"])
+        c = pool.find(chars, role["char"])   # 库里没有 → KeyError,上游显式报错
         if not all(k in c["refs"] for k in ("closeup", "front", "side")):
             c["refs"] = qwenimage.buildrefs(c)   # 招聘补图: Qwen特写 + 三视图裁切
         role["profile"] = {k: c[k] for k in ("name", "face_dna", "outfit_dna", "seed", "refs")}

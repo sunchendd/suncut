@@ -19,6 +19,8 @@ async function req(method, url, body) {
 export const api = {
   get: (u) => req('GET', u),
   post: (u, b = {}) => req('POST', u, b),
+  del: (u) => req('DELETE', u),
+  put: (u, b = {}) => req('PUT', u, b),
 };
 
 export const mediaUrl = (path, download = false) =>

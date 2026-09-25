@@ -230,3 +230,135 @@
 **证据**: 重启加载全部补丁后 smoke.sh 19/19;review_stale 字段上线(jiuwu 语义正确:重拍未成功→false);历史跨重启 17 条(含 7 条签约);/api/health 正常;最终 commit 含全部第二轮改动。
 **retake_failed 终局**: 3 次尝试均败于 Sol-H3 stage2 worker 冷编译超时(19:20-20:56 第三次爬 95 分钟仍未就绪;每 gen 目录独立 compile 缓存,不跨目录累积)。链路本身(识别/改写/调infer/日志流/错误上抛)验证通过;热缓存环境下(~430s/条,今早实测)即为正常路径。后续可选改造:把 worker work_dir/compile 指到共享目录复用编译缓存(动 Sol-H3 runtime,另开一轮)。
 **浏览器自动化面板本轮后半不可用(用户侧已关):此前已完成 dashboard/项目/审片/演员库/签约三步交互的可视化验证;剩余新字段走 API 验证 + 验收清单人工走查路径(docs/ACCEPTANCE.md §二)。
+
+---
+
+# 第三轮:D1-D9 九项功能迭代(2026-09-25 凌晨,D 轮)
+
+用户需求 9 项(演员库手选/道具场地库/服化道改名/审片模型对比/横竖屏分辨率/目录优化/编剧台词/配音师/自动字幕),全部落地并 E2E 验证。
+
+## D1 演员库手动选角 ✓
+**改动**: casting 拆出 _finalize 公共收尾;新增 run_manual(工作台手选 1-2 人,允许资料不全者、自动补三视图);API POST /api/projects/{n}/cast(404/422 校验:库内不存在/超员/重复);招聘面板「🖐 手动选角」弹窗(演员卡勾选+角色名输入+三视图缩略图)。
+**证据**: mattest 实测手选 角色B+角色C → cast.json 生成、面板显示「🖐 手动」徽标;3人/重复/未知演员分别 422/422/404。
+
+## D2 道具/场地资产库 ✓
+**改动**: sd/assetlib.py(桌面/短剧资产库/{场地,道具}/*.json;确定性 id=md5(name)前10;save/list/remove/harvest);API GET/POST /api/assets + DELETE /api/assets/{kind}/{id};#/assets 资产库页(卡片+标签+来源+增删改);detail 增 assets_pick。
+**证据**: CRUD 单测(去重/校验/删除)全过;5 个存量项目种子归档:场地 9 + 道具 30(含 mattest 新造 3 场 3 道自动入库);浏览器截图验证页面渲染。
+
+## D3 物料→服化道 + 预选锁定 ✓
+**改动**: materials.py 重写:读项目 assets.json,锁定场地 dna_en 逐字复用(免 LLM 改写),LLM 只补缺场数;预选道具进 prompt 为必用;产出自动归档(harvest,按 name_cn 去重);场景新增 name_cn;前端②面板改名服化道+「📦 预选资产」弹窗+库锁定徽章+归档清单。STAGES 标签与 dashboard/项目页文案同步。
+**证据**: mattest 实测:锁定"旧书店内部"为 S1 逐字、"精装旧书"必用进了 S2/S4 的新 prompt,新造 3 场景自动归档;E2E 日志与 materials.json 全字段核验。
+
+## D4 审片 VLM A/B: glm-4.5v vs glm-5.3-flash ✓(用户问题)
+**探针**: glm-5.3-flash **支持**图片输入(content.type=image_url);glm-5.3 大杯**不支持**(1210 报错仅收 text)。
+**A/B**(scripts/vision_ab.py,taideng+jiuwu 9 案例×2模型×2次,以归档双次均值为参照):
+| 模型 | 平均偏差 | 同案例极差 | 平均时延 | 错误 |
+|---|---|---|---|---|
+| glm-4.5v | **0.48** | 1.22 | 46.3s | 0 |
+| glm-5.3-flash | 0.83 | **1.00** | **35.0s** | 0 |
+**结论**: flash 可用但偏差大 ~73%;4.5v 更准、flash 快 24% 且略稳。**默认保持 4.5v**;新增 SD_VISION_MODEL 环境变量免改码切换(README §7)。明细落盘 vision_ab_report.json。
+
+## D5 横竖屏 + 分辨率 ✓
+**改动**: config.RESOLUTIONS(1080p/720p/480p × 横/竖);Project.create/update_settings(state.json 存 orientation/resolution);新建项目弹窗+项目头 🎞 设置按钮+API POST settings;av.orient_vf(竖屏=中心裁 9:16,对 1344×768 生成源与 1920×1088 母版源同比安全);deliver/deliver_master 按设置出片;分镜/审片 prompt 文案随横竖屏自适应;CLI new --orientation/--resolution。
+**证据**: dubtest 实测:竖屏720p 交付 720×1280(抽帧构图居中)、切横屏480p 交付 854×480;母版链同滤镜复用。
+
+## D6 项目目录优化 ✓
+**改动**: 新项目自动建 review/audio/subtitles/deliver 四子目录;交付物移入 deliver/(命名含横竖+分辨率+字幕标记);配音产物归 audio/(vo/ 分段+vo_full.wav+preview.mp4+bgm.*);字幕归 subtitles/<名>.srt;detail.deliverables 扫描新目录(老项目顶层文件兼容可见)。
+**证据**: dubtest/mattest 目录树核验;deliverables API 返回新目录内容。
+
+## D7 编剧台词 ✓
+**改动**: 硬约束#5 重写:dialogue_cn(每镜≤2句×≤18字,画外音呈现,画面拍背影/侧脸,who=story_role);合计≤25字自动丢旁白/截第二句;_norm_dialogue 归一(字符串/dict/演员名→story_role/空镜丢台词);_write_srt 台词+旁白合并均分时间槽;编剧面板台词列。
+**证据**: mattest 实测 LLM 生成 3/4 镜有台词(who 正确用 story_role,如 q3"旧读者:这封信,我等了二十年"),SRT 4 条与 VO 时间轴逐槽对齐;自评四维 8/7/7/8。
+
+## D8 配音师 agent(第 8 个 agent)✓
+**改动**: sd/dubbing.py + sd/av.py(共享选片/混音/滤镜,防循环导入):LLM 按角色气质从 6 条中文音色池分配;edge-tts 逐段合成(超时窗自动提速≤+50%);adelay 对位拼全片 VO 轨(loudnorm -13);预览混音=当前最佳条×侧链压制(床-17LUFS,sidechaincompress);BGM 替换(audio/bgm.* 循环铺底,上传 API+删除);STAGES 升 8 agent(1/8..8/8),produce/pipeline 插入配音步(失败不阻塞);⑦配音师面板(音色/时间表/逐段试听/预览/BGM)。
+**坑**: 智谱 cogtts 在 Coding Plan 外(429 余额不足)→改 edge-tts(装进 sdapi venv);BGM 输入序号写 3 实为 2 → 修复。
+**证据**: dubtest 4 段 VO+预览一次通过;BGM 上传→混音→删除全链;mattest 分音色(守店女孩=知性温柔/旧读者=清亮活泼);交付混入后响度 -16.6dB(原片-18dB)。
+
+## D9 制片自动字幕 ✓
+**改动**: deliver/master 增 subs 参数(RunBody.subs + op_deliver/op_master);subtitles/<名>.srt(narration.srt 老项目兜底);libass+Noto Sans CJK SC 烧录(cwd 相对路径防滤镜转义);制片面板「📝 自动字幕」勾选。
+**证据**: dubtest 竖屏720p 烧字幕交付,抽帧验证中文渲染清晰无豆腐块;720×1280/15.17s/音轨正常。
+
+## D 轮回归 ✓
+smoke.sh 19/19;全部 JS node --check 过;模块导入 OK;浏览器可视化验证(仪表盘 8 阶段/手动选角弹窗/配音师面板/资产库页截图);dubtest/mattest 两个演示项目保留在工作台。
+
+## D10 收尾增强 ✓
+**改动**: doctor 13→15 项(+资产库可写/数量、+edge-tts 可用性);分镜 note 升级为 情绪|台词/旁白|出场(_shot_note);制作报告增 画幅/分辨率、配音段数/音色/BGM、逐镜台词列、deliver/+subtitles/ 产物索引。
+**证据**: doctor 15/15 全绿;dubtest 报告重生成含全部新字段;smoke 21/21;最终重启后服务健康。
+
+## D 轮终态
+9 项需求全部交付且各有 E2E 证据;两个演示项目(dubtest=配音/字幕/横竖屏壳,mattest=LLM 全链)留在工作台;
+新依赖仅 edge-tts(sdapi venv);向后兼容:老项目默认竖屏 1080p,顶层交付物仍可见,雨夜便利店老项目重交付实测通过。
+
+---
+
+# 第四轮:星露谷全员班底(S 轮,2026-09-25)
+
+## S1 游戏还原外观模式 + 按名单批量签约 ✓
+**需求**: 检索星露谷物语资料,批量生成所有角色进演员库。
+**改动**:
+- audition.py 新增 look 机制: 卡可带 look="game"(游戏/IP 还原)—— 三视图走 TURNAROUND_TMPL_GAME(不锚中式东亚/年轻,发色瞳色年龄人种按卡设定),负向词去掉欧美/年龄封锁;卡档案写「风格:游戏还原」行,char_of 解析回传;默认 look 仍为 cn(中式铁律不动,常规签约零变化);
+- _next_letter 单字母用尽后接 S 系双字母(SA、SB…,支撑 30+ 演员库);
+- 新 op audition.sign_cards(按既定名单全链入库,单人失败不断链末尾汇总)+ POST /api/audition/sign-cards(名单校验:name 白名单/去重/face≥40/outfit≥20/look∈{cn,game},≤40 人);
+- scripts/stardew_cast.py: 25 人考据名单(见 S2)。
+
+## S2 星露谷 25 人名单(考据)✓
+**背景**: 演员库已有 4 名星露谷角色(角色C_阿比盖尔[紫发紫瞳]/D_艾米丽[蓝发]/E_莉亚[赤褐雀斑]/F_潘妮[草莓金发])为游戏还原风 → 本批补齐其余,风格对齐、不带前缀。
+**范围**: 成年村民 25 人 = 可婚 8(亚历克斯/艾利欧特/海莉/玛鲁/山姆/塞巴斯蒂安/谢恩/哈维)+ 村民 17(罗宾/德米特里厄斯/莱纳斯/皮埃尔/卡罗琳/乔治/伊芙琳/刘易斯/克林特/帕姆/玛妮/古斯/威利/桑迪/拉斯莫迪乌斯/马隆/莫里斯);**排除**: 儿童 Jas/Vincent、少年 Leo、非人形 Krobus/矮人、玩家农夫(无固定形象)。
+**资料源**: stardewvalleywiki.com + 检索确认(如 Pierre 吐槽 Abigail 染发、Sandy 怕晒等细节);wiki 文本无颜色描述,以公认 sprite 特征转写实 DNA。
+
+## S3 冒烟验证 + 全量放行 ✓
+**冒烟(亚历克斯+海莉)**: 游戏还原三视图 693s 出图,VLM 一致性自检过;肉眼验收:沙金短发/运动身材/绿黄学院夹克,三视角同人同衣,写实照片质感(无中式模板痕迹——临时脚本无 Chinese adult 字样核验);
+**踩坑**: 亚历克斯在特写候选 VLM 选优时"vision 空回复"(4.5v 瞬态),单人失败不断链按设计继续;
+**自愈**: 产物齐全的候选 CLI 重签 = 纯 LLM 步骤(三视图/特写候选复用),重试即过(VLM 打分 10/9.5/9.8,评语确认"沙金色短发、淡褐色瞳孔高度契合设定")→ 角色I_亚历克斯入库;
+**批量**: 剩余 23 人(c63e02e439)挂机,全局 GPU 锁自动排在冒烟批后;scripts/sign_retry.py 自愈脚本(只碰产物齐全者,不抢 GPU)+ 每 3h 看护定时任务(完成自删);
+**节奏实测**: ~24 分钟/人(三视图 693s + 特写 3 种子 ~750s + VLM),23 人 ≈ 9 小时,断点续跑安全。
+
+## S4 用户反馈: 与游戏原著差距大 → 官方立绘驱动重置(refit)✓
+**反馈**: 已生成角色与游戏原著形象相差太大(手写 DNA 靠记忆猜色,多处偏差)。
+**方案**(双管齐下,均为用户建议):
+1. **立绘驱动的 DNA 精修**: 下载 29 张官方像素立绘(stardewvalleywiki)→ glm-4.5v 逐张精读,
+   修订 DNA 与立绘严格对齐。实测纠错量大:亚历克斯棕发蓝眼(原写金发棕眼)、桑迪玫红发(原金色)、
+   潘妮黄衬衫(原绿裙)、伊芙琳红格纹(原粉碎花)、威利红毛衣(原黄雨衣)、阿比盖尔紫连帽衫+蓝绿瞳
+   (原蓝马甲+紫瞳)、法师紫发(原银发)…… 共 29 份修订记录(ref_changed)留档 stardew_refit_plan.json;
+2. **Qwen2.1 参考图条件生成(看图生图)**: 确认 QwenImage21Pipeline.image 参数 = 条件图
+   (文本编码器看图 + VAE latent 前缀),_gen_one 加 ref_images;三视图/试镜照/特写全链在带 portrait
+   时自动走"看图还原"模式(prompt 前缀强调 identical hair/eyes/skin/outfit colors)。
+**重置链路**: sd/audition.refit(card, portrait) —— 三态目录处理(素材原地重置/候选重置后签约/无档新建),
+旧产物归档到 归档/重置前-MMdd-HHMM,重写档案(精修 DNA+游戏还原+参考立绘行),full_package 重出;
+新 op audition.refit + POST /api/audition/refit(校验 portrait 文件存在,≤40 人,失败不断链);
+pool.scan/char_of 解析 参考立绘 字段,未来 buildrefs/重拍补图都自动带立绘。
+**冒烟证据(亚历克斯)**: 三视图棕发+亮蓝眼+浅肤+绿黄夹克,与官方立绘逐项一致(旧版金发棕眼);
+特写 VLM 选优 9 分"发型/眼神/肤色匹配度高"。全量 28 人批(97e9ceb89c)挂机中,看护定时任务已切换到新批。
+**踩坑**: 服务重启后首次 setsid 启动偶发未起(再次启动即恢复);wiki 立绘直链 hash 需从页面 HTML 提取;
+128×128 像素立绘上采样 512 即可作为条件图,VLM/生成端均可读。
+
+## S5 画质四层优化: 生成端/超分段/编码段/感知层 ✓
+**背景**: 横版链诊断(2026-09-25)——生成 1344x768(103万像素)→SPANx2→1920x1088→交付裁1080,
+全程无色彩处理;交付有 2~3 代编码;竖版裁切清晰度损失大(已默认改横版)。
+**四层改动**(均盲评验证,独立视觉裁判+拉普拉斯方差双轨;方差单独不可信——噪点/白边也会抬高):
+1. **生成端**: 分镜模板加"光线与色调纪律"——主光源从固定词表选一(soft window key /
+   warm tungsten / cold neon rim / golden-hour backlight / overcast diffused / practical
+   lamp low-key),同场景各镜共用同一主光源,禁 low light/underexposed(暗部噪点毁清晰度)。
+2. **超分段**: master.py ImageScale 由 disabled+1920x1088(纵横比 1.75→1.7647 轻微挤压)
+   改 **crop=center 直出 1920x1080**(cover 缩放后居中裁,几何正确+免 1088 中转;
+   ComfyUI 节点行为已 2688x1536 合成图实测)。
+3. **编码段**: 交付端尺寸达标且不烧字幕 → **流拷省一代**(producer._final_encode;
+   视频流 md5 逐字节一致已验证)。母版链全流程只剩 SPAN 后那一次 CRF14。
+4. **感知层**(av.py 重构,旧 unsharp 退役):
+   - 母版链 look_vf()= lut3d+eq 烤入 PNG→CRF14 单次编码;**不加 hqdn3d/cas**——
+     盲评实证:SPAN 输出再加 cas 出白边晕轮,hqdn3d 时域拖影糊发丝;
+   - 日常档 orient_vf()= 缩放/裁切+lut3d+eq+cas=0.7(纯 lanczos 拉伸偏软的补偿,
+     等效强度低于旧竖版 unsharp=0.35);
+   - LUT: scripts/make_lut.py 程序化生成(S曲线+阴影青/高光暖分离调色+微增饱和),
+     looks/warm-film.cube(温和,A/B 胜者,默认)+teal-orange-strong.cube(手动可换)。
+**盲评记录**(jiuwu-q1 同源,裁判=图像模型 100% 放大裁块;glm-4.5v API 缩图 768px 后
+分辨不出锐度差,全 TIE,不可用于锐度 A/B):
+- 旧母版 vs 温和LUT+eq 新母版: **新胜**(暗部更深邃/肤色更质感/无伪影);
+- 加强 LUT 也小胜旧链(氛围更电影感),但跨内容安全性取温和档默认;
+- 旧日常档 vs 新日常档(LUT+eq+cas0.7): **新胜**(发丝分离度/纸面纹理/灯泡轮廓/无白边);
+- cas 0.45/0.7 在母版(SPAN)源上均出晕轮 → 母版链禁用 cas。
+**产物**: scripts/quality_ab.py(变体编码+原生裁块盲评工具), scripts/ab_upscale.py
+(SPAN vs 4x-UltraSharp A/B,GPU 空闲时跑), quality_ab_report.json。
+**踩坑**: ①ffmpeg cas 的 strength 越小越锐(0=最锐),与直觉相反;②lut3d 滤镜串中
+路径无需转义;③llm._shrink_b64 默认压 768px,VLM 看细节必须用原生裁块+maxdim=1280。

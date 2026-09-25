@@ -1,5 +1,6 @@
 """演员库 —— 解析 AI角色工坊 的角色提示词.md 为可招募档案."""
 import re
+from pathlib import Path
 
 from . import config
 
@@ -25,6 +26,7 @@ def scan(include_incomplete=False):
 
         face = block_after(r"\*\*FACE\*\*")
         outfit = block_after(r"\*\*默认穿搭")
+        portrait = block_after(r"\*\*参考立绘")
         seed = re.search(r"seed[：:]\s*(\d+)", text)
         refs = {}
         for f in sorted((d / "2_视频参考").glob("*.png")):
@@ -37,6 +39,8 @@ def scan(include_incomplete=False):
             continue
         chars.append({"name": d.name, "face_dna": face,
                       "outfit_dna": outfit or "casual outfit per close-up reference",
+                      "portrait": portrait if portrait and Path(portrait).exists() else None,
+                      "look": "game" if "游戏还原" in text else "cn",
                       "seed": int(seed.group(1)) if seed else config.CHAR_SEED_BASE,
                       "refs": refs, "dir": str(d)})
     return chars

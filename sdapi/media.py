@@ -14,7 +14,9 @@ TYPES = {".mp4": "video/mp4", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
          ".png": "image/png", ".webp": "image/webp", ".srt": "text/plain; charset=utf-8",
          ".log": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8",
          ".md": "text/plain; charset=utf-8", ".json": "application/json",
-         ".jsonl": "text/plain; charset=utf-8"}
+         ".jsonl": "text/plain; charset=utf-8",
+         ".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac",
+         ".m4a": "audio/mp4"}
 
 
 def _resolve(path: str) -> Path:

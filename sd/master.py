@@ -1,5 +1,8 @@
-"""母版档 —— 草稿(infer.py 1344x768) → ComfyUI SPANx2 神经超分 → lanczos 1920x1088
-→ PNG 无损 → ffmpeg CRF14 编码(1080p 清晰版链, 桌面工作流 §质量阶梯 日常+档).
+"""母版档 —— 草稿(infer.py 1344x768) → ComfyUI SPANx2 神经超分 → 2688x1536
+→ ImageScale cover+center-crop 1920x1080(超分过采样后一次到位,免 1088 中转)
+→ PNG 无损 → ffmpeg 感知链(hqdn3d/LUT/eq/cas)+CRF14 单次编码
+(1080p 清晰版链, 桌面工作流 §质量阶梯 日常+档; 感知链在唯一一次编码里烤入,
+交付端尺寸达标即流拷 → 全链只压一代).
 
 对应经验: SaveVideo 'auto' 码率会压碎细节,母版必须 PNG+自编码;
 SPAN supersample-then-downscale 优于直接放大; 基准分辨率决定观感.
@@ -11,7 +14,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from . import config
+from . import av, config
 
 COMFY = "http://127.0.0.1:8189"
 SPAN = "2xNomosUni_span_multijpg.safetensors"
@@ -36,7 +39,9 @@ def _upload(video: Path):
     return dst.name
 
 
-def _workflow(video_name, model=SPAN, width=1920, height=1088, prefix="master"):
+def _workflow(video_name, model=SPAN, width=1920, height=1080, prefix="master"):
+    """ImageScale crop=center: 先等比放大 cover 目标框再居中裁到位,
+    2688x1536 → 1920x1097 → 裁 1920x1080,一次拿到成品帧(不再有 1088 中转)."""
     return {
         "1": {"class_type": "LoadVideo", "inputs": {"file": video_name}},
         "2": {"class_type": "GetVideoComponents", "inputs": {"video": ["1", 0]}},
@@ -45,14 +50,14 @@ def _workflow(video_name, model=SPAN, width=1920, height=1088, prefix="master"):
               "inputs": {"upscale_model": ["3", 0], "image": ["2", 0]}},
         "5": {"class_type": "ImageScale",
               "inputs": {"upscale_method": "lanczos", "width": width,
-                         "height": height, "crop": "disabled", "image": ["4", 0]}},
+                         "height": height, "crop": "center", "image": ["4", 0]}},
         "6": {"class_type": "SaveImage", "inputs": {"images": ["5", 0],
                                                     "filename_prefix": prefix}},
     }
 
 
 def upscale_clip(draft: Path, out_mp4: Path, model=SPAN, crf=14,
-                 width=1920, height=1088, timeout=3600):
+                 width=1920, height=1080, timeout=3600):
     """单条草稿 → 1080p 母版. 返回 (out_mp4, 耗时秒)."""
     t0 = time.time()
     name = _upload(draft)
@@ -78,11 +83,12 @@ def upscale_clip(draft: Path, out_mp4: Path, model=SPAN, crf=14,
         dst = frame_dir / f"f_{i:05d}_.png"
         if src != dst:
             src.replace(dst) if src.parent == frame_dir else dst.write_bytes(src.read_bytes())
-    # PNG → CRF14 + 原音轨
+    # PNG → 感知链 + CRF14 + 原音轨(全链唯一一次视频编码,感知链在此烤入)
     r = subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error", "-framerate", "24",
          "-i", str(frame_dir / "f_%05d_.png"), "-i", str(draft),
-         "-map", "0:v", "-map", "1:a?", "-c:v", "libx264", "-crf", str(crf),
+         "-map", "0:v", "-map", "1:a?", "-vf", av.look_vf(),
+         "-c:v", "libx264", "-crf", str(crf),
          "-preset", "slow", "-c:a", "copy", str(out_mp4)],
         capture_output=True, text=True)
     if r.returncode != 0:

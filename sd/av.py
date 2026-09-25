@@ -1,0 +1,187 @@
+"""av —— 交付端音视频工具(配音师/制片共用,避免互相 import).
+
+- pick_best: 每镜历史最佳条选片(全≥7 优先,同分取总分)
+- orient_vf: 横竖屏裁切/缩放滤镜(生成端固定 1344x768,9:16 中心裁切安全)
+- vo_of / bgm_of: 配音产物定位
+- mix_vo: VO 侧链压制混音(音乐床让路,人声清晰)
+- burn_vf: 字幕烧录滤镜(libass + Noto Sans CJK SC)
+"""
+import subprocess
+from pathlib import Path
+
+from . import config
+from pathlib import Path
+
+SUB_STYLE = ("FontName=Noto Sans CJK SC,FontSize=13,PrimaryColour=&H00FFFFFF,"
+             "OutlineColour=&H80000000,BorderStyle=1,Outline=1,Shadow=0,MarginV=28")
+
+
+def run(cmd, timeout=1800, cwd=None):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+    if r.returncode != 0:
+        raise RuntimeError(f"ffmpeg 失败: {cmd[:4]}…: {(r.stderr or '')[-400:]}")
+    return r
+
+
+def probe_duration(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    return float(r.stdout.strip())
+
+
+def probe_size(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                        "-show_entries", "stream=width,height", "-of", "csv=p=0",
+                        str(path)], capture_output=True, text=True)
+    w, h = r.stdout.strip().splitlines()[0].split(",")[:2]
+    return int(w), int(h)
+
+
+# ---------------------------------------------------------------- 选片
+def pick_best(proj):
+    """每镜历史最佳条: 有分且全 ≥7 最优,其次总分,无分垫底(与交付纪律一致)."""
+    script = proj.load_stage("script")
+    state = proj.load_state()
+    gen = proj.load_stage("generate") or {"videos": {}}
+    takes = state.get("takes", {})
+    rv = proj.load_stage("review") or {"results": []}
+    verdict = {r["case"]: r.get("verdict") for r in rv["results"]}
+
+    segs, pick_log = [], []
+    for shot in script["shots"]:
+        case = f"{proj.name}-{shot['id']}"
+        gen_scores = state.get("gen_scores", {}).get(case, {})
+        candidates = [{"mp4": t["mp4"], "scores": t.get("scores", {})}
+                      for t in takes.get(case, [])]
+        if gen["videos"].get(case):
+            candidates.append({"mp4": gen["videos"][case], "scores": gen_scores})
+        candidates = [c for c in candidates if Path(c["mp4"]).exists()]
+        if not candidates:
+            raise RuntimeError(f"{case} 没有任何可用条")
+
+        def rank(c):
+            s = c.get("scores") or {}
+            ok = 1 if (s and min(s.values()) >= 7) else 0
+            return (ok, sum(s.values()) if s else -1)
+
+        best = max(candidates, key=rank)
+        segs.append(best["mp4"])
+        pick_log.append({"case": case, "picked": best["mp4"], "verdict": verdict.get(case),
+                         "picked_scores": best.get("scores")})
+    return segs, pick_log
+
+
+# ---------------------------------------------------------------- 配音产物
+def vo_of(proj):
+    """全片 VO 音轨(配音师产物);不存在返回 None."""
+    f = proj.path / "audio" / "vo_full.wav"
+    return str(f) if (proj.stage_done("dub") and f.exists()) else None
+
+
+def bgm_of(proj):
+    """用户投喂的全片 BGM 替换文件(audio/bgm.*);不存在返回 None."""
+    for ext in (".mp3", ".wav", ".flac", ".m4a"):
+        f = proj.path / "audio" / f"bgm{ext}"
+        if f.exists():
+            return str(f)
+    return None
+
+
+# ---------------------------------------------------------------- 感知链
+# 2026-09-25 quality_ab 三轮视觉盲裁定稿(拉普拉斯方差会把噪点/白边当"锐度",不可单独采信):
+#   · LUT+eq 色调链:一致胜出(暗部更深邃/肤色更质感/无伪影) → 两条链默认启用
+#   · hqdn3d: 时域拖影会糊发丝;SPAN 输出本就干净 → 默认不启用(常量保留备用)
+#   · cas: 在 SPAN 母版上有白边晕轮 → 母版链不用;仅日常档(纯 lanczos 拉伸偏软)
+#     用 0.7 轻档(等效强度低于旧竖版 unsharp=0.35,风险已知可控)
+LOOKS_DIR = config.FRAMEWORK_ROOT / "looks"   # 放 *.cube 即全片统一调色
+LOOK_PREFER = "warm-film.cube"                # A/B 胜者;teal-orange-strong 手动可换
+EQ_LOOK = "eq=contrast=1.03:saturation=1.05"  # 温和对比/饱和,抬感知清晰度
+CAS = "cas=strength=0.7"                      # 仅日常档;越小越锐(0.45 在母版上已见晕轮)
+HQDN = "hqdn3d=1.5:1.5:6:6"                   # 备用:生成噪声重时可手工加回
+
+
+def lut3d_filter():
+    """looks/ 里的全片统一调色(优先 A/B 胜者 warm-film);没有则空串(链路照跑)."""
+    cubes = sorted(LOOKS_DIR.glob("*.cube")) if LOOKS_DIR.is_dir() else []
+    prefer = [c for c in cubes if c.name == LOOK_PREFER]
+    return f"lut3d=file={prefer[0] if prefer else cubes[0]}" if cubes else ""
+
+
+def look_vf():
+    """母版链纯色调链(无缩放/无锐化): master.py 在 PNG→CRF14 单次编码时烤入.
+
+    SPAN 输出本身已锐,再加 cas/hqdn3d 只会带来白边与拖影(盲评实证).
+    """
+    lut = lut3d_filter()
+    return ",".join(([lut] if lut else []) + [EQ_LOOK])
+
+
+def orient_vf(w, h, orientation, look=True):
+    """裁切/缩放 + 色调链(+轻锐化);生成端 1344x768 / 母版 1920x1080 同比安全(9:16=0.5625).
+
+    look=False: 母版链的烧字幕等再编码场景(色调已烤进 master 条,防二次叠加).
+    日常档走纯 lanczos 拉伸偏软,故保留轻 cas;母版档(SPAN)经 look_vf 烤入,不再锐化.
+    """
+    vf = []
+    if orientation == "portrait":
+        vf.append("crop=w='min(iw,ih*0.5625)':h=ih:x='(iw-ow)/2':y=0")
+        vf.append(f"scale={w}:{h}:flags=lanczos")
+    else:
+        vf.append(f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos")
+        vf.append(f"crop={w}:{h}")
+    if look:
+        lut = lut3d_filter()
+        if lut:
+            vf.append(lut)
+        vf.append(EQ_LOOK)
+        vf.append(CAS)
+    return ",".join(vf)
+
+
+def burn_vf(srt_name, extra=""):
+    """字幕烧录滤镜;调用方须以 srt 所在目录为 cwd(规避滤镜串路径转义)."""
+    sub = f"subtitles={srt_name}:force_style='{SUB_STYLE}'"
+    return f"{extra},{sub}" if extra else sub
+
+
+def _audio_chain(bed_src, vo_src, dur):
+    """[aout] 滤镜串: 床响度统一(-17 LUFS) + VO 侧链压制(-13 LUFS,人声在上).
+
+    bed_src 如 "0:a"(视频原声)或 "2:a"(BGM 替换,输入序: 0=video 1=vo 2=bgm,
+    外层 -stream_loop 循环);dur 由 mix_vo 实测传入,防循环输入拖成无限长。
+    """
+    bed = (f"[{bed_src}]atrim=0:{dur:.3f},asetpts=N/SR/TB,"
+           if bed_src != "0:a" else f"[{bed_src}]")
+    return (f"{bed}loudnorm=I=-17:TP=-1.5:LRA=11,aresample=48000[bed];"
+            f"[{vo_src}]loudnorm=I=-13:TP=-1.2:LRA=9,aresample=48000,asplit=2[sc][vo];"
+            f"[bed][sc]sidechaincompress=threshold=0.06:ratio=8:attack=20:release=380[bedd];"
+            f"[bedd][vo]amix=inputs=2:duration=first:normalize=0[aout]")
+
+
+def mix_vo(video, vo, out, bgm=None):
+    """视频原声(或 BGM 替换)×VO 侧链混音;视频流直拷."""
+    dur = probe_duration(video)
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", vo]
+    if bgm:
+        cmd += ["-stream_loop", "-1", "-i", bgm]
+    bed = "2:a" if bgm else "0:a"
+    cmd += ["-filter_complex", _audio_chain(bed, "1:a", dur),
+            "-map", "0:v", "-map", "[aout]", "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k", "-t", f"{dur:.3f}", str(out)]
+    run(cmd)
+    return str(out)
+
+
+def concat(segs, outlist, out, reencode=True):
+    """concat demuxer 拼接(同源同参);reencode=False 时流直拷."""
+    Path(outlist).write_text("".join(f"file '{s}'\n" for s in segs))
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+           "-i", str(outlist)]
+    if reencode:
+        cmd += ["-c:v", "libx264", "-crf", "17", "-preset", "medium",
+                "-c:a", "aac", "-b:a", "160k"]
+    else:
+        cmd += ["-c", "copy"]
+    cmd += [str(out)]
+    run(cmd, timeout=3600)
+    return str(out)

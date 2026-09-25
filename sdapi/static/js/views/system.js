@@ -31,8 +31,10 @@ export default async function render(root) {
 
   const rows = cfg ? [
     ['项目目录', cfg.projects], ['runtime(docker 边界)', cfg.runtime],
-    ['演员库工坊', cfg.workshop], ['桌面交付', cfg.desktop],
+    ['演员库工坊', cfg.workshop], ['资产库(道具/场地)', cfg.asset_lib],
+    ['桌面交付', cfg.desktop],
     ['文本/快速模型', `${cfg.models.text} / ${cfg.models.fast}`], ['视觉审片模型', cfg.models.vision],
+    ['配音 TTS', 'edge-tts(中文音色池 6 条)'],
     ['镜头规格', `${cfg.video.w}×${cfg.video.h} · ${cfg.video.seconds}s/镜 · 121帧@24fps`],
     ['ComfyUI(母版/重生成)', cfg.comfyui], ['本服务', `${cfg.host}:${cfg.port}(单 worker)`],
   ] : [];
@@ -61,10 +63,10 @@ export default async function render(root) {
    ▼
 sdapi :8620  FastAPI 单 worker
    ├─ JobManager   按项目串行 + 全局 GPU 锁 + print捕获 + gen日志tail
-   ├─ AgentService 7 agent 门面(cast…deliver) + 分步流水线编排
+   ├─ AgentService 8 agent 门面(cast…dub…deliver) + 分步流水线编排
    └─ Media        白名单根 + HTTP Range
    ▼                        ▼
 Sol-H3 infer(docker)     ComfyUI :8189(母版/重生成)
-智谱 GLM(编剧/评审/审片 VLM)`)));
+智谱 GLM(编剧/评审/审片 VLM)  edge-tts(配音师)`)));
   return { dispose: off };
 }
