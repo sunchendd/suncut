@@ -156,16 +156,23 @@ def burn_vf(srt_name, extra=""):
     return f"{extra},{sub}" if extra else sub
 
 
-def _audio_chain(bed_src, vo_src, dur):
-    """[aout] 滤镜串: 床响度统一(-18 LUFS,给 VO 留 5dB 台阶) + VO 侧链压制(-13 LUFS,人声在上)
-    + 终混 true-peak 限幅 -1.5dBTP(D 轮评审: 旧链峰值顶到 -0.9dB 削波边缘且无气口).
+def _audio_chain(vo_src, dur, bgm_src=None):
+    """[aout]：保留现场环境音，BGM 只作为可被旁白压低的音乐床。
 
-    bed_src 如 "0:a"(视频原声)或 "2:a"(BGM 替换,输入序: 0=video 1=vo 2=bgm,
-    外层 -stream_loop 循环);dur 由 mix_vo 实测传入,防循环输入拖成无限长。
+    0:a 是画面原声，1:a 是 VO，2:a（可选）是循环 BGM。过去 BGM 会直接
+    替换 0:a，导致脚步、风声和动作感消失；现在先把环境声和音乐合成，再给 VO
+    留出动态空间。dur 限定循环输入，防止最终文件被 BGM 拉长。
     """
-    bed = (f"[{bed_src}]atrim=0:{dur:.3f},asetpts=N/SR/TB,"
-           if bed_src != "0:a" else f"[{bed_src}]")
-    return (f"{bed}loudnorm=I=-18:TP=-1.5:LRA=11,aresample=48000[bed];"
+    natural = (f"[0:a]atrim=0:{dur:.3f},asetpts=N/SR/TB,"
+               "loudnorm=I=-25:TP=-2:LRA=11,aresample=48000[natural]")
+    if bgm_src:
+        bed = (natural + ";" +
+               f"[{bgm_src}]atrim=0:{dur:.3f},asetpts=N/SR/TB,"
+               "loudnorm=I=-25:TP=-2:LRA=9,volume=0.72,aresample=48000[music];"
+               "[natural][music]amix=inputs=2:duration=first:normalize=0[bed]")
+    else:
+        bed = natural + ";[natural]anull[bed]"
+    return (f"{bed};"
             f"[{vo_src}]loudnorm=I=-13:TP=-1.2:LRA=9,aresample=48000,asplit=2[sc][vo];"
             f"[bed][sc]sidechaincompress=threshold=0.05:ratio=10:attack=20:release=420[bedd];"
             f"[bedd][vo]amix=inputs=2:duration=first:normalize=0,"
@@ -173,13 +180,12 @@ def _audio_chain(bed_src, vo_src, dur):
 
 
 def mix_vo(video, vo, out, bgm=None):
-    """视频原声(或 BGM 替换)×VO 侧链混音;视频流直拷."""
+    """视频原声＋可选 BGM × VO 侧链混音；视频流直拷。"""
     dur = probe_duration(video)
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", vo]
     if bgm:
         cmd += ["-stream_loop", "-1", "-i", bgm]
-    bed = "2:a" if bgm else "0:a"
-    cmd += ["-filter_complex", _audio_chain(bed, "1:a", dur),
+    cmd += ["-filter_complex", _audio_chain("1:a", dur, "2:a" if bgm else None),
             "-map", "0:v", "-map", "[aout]", "-c:v", "copy",
             "-c:a", "aac", "-b:a", "192k", "-t", f"{dur:.3f}", str(out)]
     run(cmd)

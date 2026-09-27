@@ -14,7 +14,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import av, config, creative_skills, llm, musiclib
+from . import av, config, creative_skills, llm, musiclib, voicelib
 
 VOICE_SYSTEM = ("你是配音导演。根据角色外观气质,从音色池里为每个角色选最贴合的一条,"
                 "再为旁白选一条。只输出 JSON。\n\n"
@@ -80,46 +80,57 @@ def _voice_overrides(proj):
 def _assign_voices(proj, cast, narrator_default):
     """LLM 初选、项目覆盖、同剧角色去重，形成可审计的声音档案。"""
     overrides = _voice_overrides(proj)
-    pool = "\n".join(f"- {k}" for k in config.TTS_VOICES)
+    available_assets = voicelib.edge_voices()
+    if not available_assets:
+        raise RuntimeError("配音演员库为空或没有已授权的 edge_tts 音色")
+    pool = "\n".join(f"- {k}: {v['label']} ({'/'.join(v.get('tags', []))})"
+                     for k, v in available_assets.items())
     roles = "\n".join(f"- {r['story_role']}: {r['profile']['face_dna'][:100]}"
                       for r in cast["cast"])
     try:
         d = llm.chat_json(config.LLM_FAST, VOICE_SYSTEM,
                           f"【音色池】\n{pool}\n\n【角色】\n{roles}\n\n"
-                          '只输出 JSON: {"roles": {"主角": "池内音色名"}, '
-                          '"narrator": "池内音色名"}')
-        voices = {k: v for k, v in d.get("roles", {}).items() if v in config.TTS_VOICES}
-        narr = d.get("narrator") if d.get("narrator") in config.TTS_VOICES else narrator_default
+                          '只输出 JSON: {"roles": {"主角": "池内音色ID"}, '
+                          '"narrator": "池内音色ID"}')
+        voices = {k: v for k, v in d.get("roles", {}).items() if v in available_assets}
+        narr = d.get("narrator") if d.get("narrator") in available_assets else None
     except Exception:
-        voices, narr = {}, narrator_default
-    used = set()
-    available = list(config.TTS_VOICES)
+        voices, narr = {}, None
+    default_id = next((v["id"] for v in available_assets.values()
+                       if v["label"] == narrator_default), next(iter(available_assets)))
+    narr = narr or default_id
+    # 同一底层 speaker 不能以两个目录别名分配给不同演员；旁白也不复用。
+    used = {available_assets[narr]["engine_voice"]}
+    available = list(available_assets)
     profiles = {}
     for r in cast["cast"]:
         role = r["story_role"]
         override = (overrides.get("roles") or {}).get(role, {})
         voice = override.get("voice") if isinstance(override, dict) else None
-        if voice not in config.TTS_VOICES:
+        if voice not in available_assets:
             voice = voices.get(role)
-        if voice in used:                           # 同剧角色默认不共用声线
-            voice = next((v for v in available if v not in used and v != narr), voice)
-        voice = voice if voice in config.TTS_VOICES else next(
-            (v for v in available if v not in used), narr)
+        if voice not in available_assets or available_assets[voice]["engine_voice"] in used:
+            voice = next((v for v in available
+                          if available_assets[v]["engine_voice"] not in used), narr)
         source = override.get("source", "provider_generic_tts") if isinstance(override, dict) else "provider_generic_tts"
         consent = override.get("consent_reference", "") if isinstance(override, dict) else ""
         if source in ("custom_voice", "voice_clone") and not consent.strip():
             raise RuntimeError(f"{role} 使用自定义/克隆音色必须提供 consent_reference")
         voices[role] = voice
-        used.add(voice)
-        profiles[role] = {"voice": voice, "voice_id": config.TTS_VOICES[voice],
+        asset = voicelib.validate_selection(voice, consent)
+        used.add(asset["engine_voice"])
+        profiles[role] = {"voice": asset["label"], "voice_asset_id": voice,
+                          "voice_id": asset["engine_voice"], "engine": asset["engine"],
                           "source": source, "consent_reference": consent,
                           "performance": (override.get("performance", "") if isinstance(override, dict) else "")}
         r["voice_profile"] = profiles[role]
     narrator_override = overrides.get("narrator") or {}
     narrator = narrator_override.get("voice", narr) if isinstance(narrator_override, dict) else narr
-    if narrator not in config.TTS_VOICES:
+    if narrator not in available_assets:
         narrator = narr
-    narrator_profile = {"voice": narrator, "voice_id": config.TTS_VOICES[narrator],
+    narrator_asset = voicelib.validate_selection(narrator, (narrator_override.get("consent_reference", "") if isinstance(narrator_override, dict) else ""))
+    narrator_profile = {"voice": narrator_asset["label"], "voice_asset_id": narrator,
+                        "voice_id": narrator_asset["engine_voice"], "engine": narrator_asset["engine"],
                         "source": (narrator_override.get("source", "provider_generic_tts") if isinstance(narrator_override, dict) else "provider_generic_tts"),
                         "consent_reference": (narrator_override.get("consent_reference", "") if isinstance(narrator_override, dict) else "")}
     if narrator_profile["source"] in ("custom_voice", "voice_clone") and not narrator_profile["consent_reference"].strip():
@@ -132,12 +143,15 @@ def _build_vo_track(proj, segs, vo_dir, total_s):
     for k, seg in enumerate(segs, 1):
         seg["file"] = str(vo_dir / f"seg{k:03d}.mp3")
         window = seg["t_end"] - seg["t_start"]
-        _tts(seg["text"], config.TTS_VOICES[seg["voice"]], Path(seg["file"]))
+        asset = voicelib.by_id(seg["voice"])
+        if not asset or asset.get("engine") != "edge_tts":
+            raise RuntimeError(f"当前部署只启用 edge_tts，音色 {seg['voice']} 需要对应引擎适配器")
+        _tts(seg["text"], asset["engine_voice"], Path(seg["file"]))
         dur = av.probe_duration(seg["file"])
         rate_boost = 0
         if dur > window + 0.15:
             rate = min(MAX_RATE_BOOST, max(1, int((dur / max(window, 0.5) - 1) * 100) + 3))
-            _tts(seg["text"], config.TTS_VOICES[seg["voice"]], Path(seg["file"]), rate)
+            _tts(seg["text"], asset["engine_voice"], Path(seg["file"]), rate)
             dur = av.probe_duration(seg["file"])
             rate_boost = rate
         if dur > window + 0.20:
@@ -190,7 +204,7 @@ def run(proj, force=False):
     print(f"[配音] 音色分配: 角色 {voices} | 旁白 {narrator}")
     segs = _segments(proj.name, script, narrator, voices)
     data = {"voices": voices, "narrator": narrator, "voice_profiles": voice_profiles,
-            "voice_ids": {k: config.TTS_VOICES[k] for k in
+            "voice_ids": {voice_id: voicelib.by_id(voice_id)["engine_voice"] for voice_id in
                           set(list(voices.values()) + [narrator])}}
     if not segs:
         data.update({"segments": [], "vo_full": None,

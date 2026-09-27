@@ -14,12 +14,22 @@ class FakeProject:
 
 
 class MusicLibraryTests(unittest.TestCase):
+    def test_sha_mismatch_is_not_ready(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            library = root / "library"
+            library.mkdir()
+            (library / "licensed.mp3").write_bytes(b"music" * 300)
+            track = {"file": "licensed.mp3", "sha256": "0" * 64}
+            with patch.object(config, "MUSIC_LIBRARY", library):
+                self.assertFalse(musiclib.is_ready(track))
+
     def test_only_approved_catalog_track_can_be_selected(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             library = root / "library"
             library.mkdir()
-            (library / "licensed.mp3").write_bytes(b"music")
+            (library / "licensed.mp3").write_bytes(b"music" * 300)
             catalog = library / "catalog.json"
             catalog.write_text(json.dumps({"tracks": [{"id": "warm", "file": "licensed.mp3",
                 "rights": {"approved": True}, "mood_tags": ["warm"], "bpm": 82}]}))

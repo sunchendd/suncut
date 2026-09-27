@@ -209,7 +209,8 @@ def deliver(proj, force=False, subs=False):
     → 片尾片名卡 → 横/竖+分辨率 → deliver/ 与桌面."""
     settings = proj.settings()
     # BGM 属于制片最终混音，不再在每个生成镜头里反复启动随机音乐。
-    music = musiclib.materialize_selected_bgm(proj)
+    music = musiclib.materialize_selected_bgm(proj) or musiclib.choose_for_project(proj)
+    music = musiclib.materialize_selected_bgm(proj) or music
     if not music:
         raise musiclib.MusicLibraryError(
             "交付缺少统一 BGM：请上传项目 BGM，或从 music_library 中选择已授权曲目")

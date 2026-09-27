@@ -55,7 +55,7 @@ TTS_VOICES = {                                # 配音师音色池(中文)
     "男-阳光少年": "zh-CN-YunxiNeural",
     "男-低沉磁性": "zh-CN-YunjianNeural",
     "女-清亮活泼": "zh-CN-XiaoyiNeural",
-    "女-知性温柔": "zh-CN-XiaoxiaoNeural",
+    "女-知性温柔": "zh-CN-XiaomengNeural",
 }
 NARRATOR_DEFAULT = "旁白-沉稳男声"
 VOICE_PROFILES_FILE = "voice-profiles.json"  # 项目 audio/ 下，允许逐角色覆盖默认音色

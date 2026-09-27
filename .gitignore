@@ -3,3 +3,6 @@ __pycache__/
 projects/
 *.log
 jobs.jsonl
+# 曲库二进制素材由 DGX/NAS 管理；只提交可审计目录与授权台账。
+music_library/cc0/*
+!music_library/cc0/.gitkeep

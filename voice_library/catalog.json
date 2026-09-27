@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "voices": [
+    {"id": "edge-yunyang", "label": "旁白-沉稳男声", "engine": "edge_tts", "engine_voice": "zh-CN-YunyangNeural", "languages": ["zh-CN"], "tags": ["narrator", "mature", "calm"], "rights": {"status": "provider_preset", "approved": true}},
+    {"id": "edge-xiaoxiao", "label": "旁白-温暖女声", "engine": "edge_tts", "engine_voice": "zh-CN-XiaoxiaoNeural", "languages": ["zh-CN"], "tags": ["narrator", "warm"], "rights": {"status": "provider_preset", "approved": true}},
+    {"id": "edge-yunxi", "label": "男-阳光少年", "engine": "edge_tts", "engine_voice": "zh-CN-YunxiNeural", "languages": ["zh-CN"], "tags": ["male", "young", "bright"], "rights": {"status": "provider_preset", "approved": true}},
+    {"id": "edge-yunjian", "label": "男-低沉磁性", "engine": "edge_tts", "engine_voice": "zh-CN-YunjianNeural", "languages": ["zh-CN"], "tags": ["male", "mature", "low"], "rights": {"status": "provider_preset", "approved": true}},
+    {"id": "edge-xiaoyi", "label": "女-清亮活泼", "engine": "edge_tts", "engine_voice": "zh-CN-XiaoyiNeural", "languages": ["zh-CN"], "tags": ["female", "young", "bright"], "rights": {"status": "provider_preset", "approved": true}},
+    {"id": "edge-xiaomeng", "label": "女-知性温柔", "engine": "edge_tts", "engine_voice": "zh-CN-XiaomengNeural", "languages": ["zh-CN"], "tags": ["female", "warm", "gentle"], "rights": {"status": "provider_preset", "approved": true}}
+  ]
+}

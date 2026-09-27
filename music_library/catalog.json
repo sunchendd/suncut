@@ -1,4 +1,23 @@
 {
   "schema_version": 1,
-  "tracks": []
+  "tracks": [
+    {
+      "id": "cc0-sunset-plains",
+      "title": "Sunset Plains",
+      "file": "cc0/sunset_plains.wav",
+      "mood_tags": ["warm", "rural", "memory", "calm", "acoustic"],
+      "bpm": null,
+      "instrumental": true,
+      "rights": {"approved": true, "license": "CC0-1.0", "source": "OpenGameArt / Yoiyami", "source_url": "https://opengameart.org/content/sunset-plains", "attribution": "Not required (CC0)", "scope": "commercial and non-commercial"}
+    },
+    {
+      "id": "cc0-oriented",
+      "title": "Oriented",
+      "file": "cc0/Oriented.ogg",
+      "mood_tags": ["mystery", "dark", "oriental", "slow"],
+      "bpm": null,
+      "instrumental": true,
+      "rights": {"approved": true, "license": "CC0-1.0", "source": "OpenGameArt / yd", "source_url": "https://opengameart.org/content/oriented", "attribution": "Not required (CC0)", "scope": "commercial and non-commercial"}
+    }
+  ]
 }
