@@ -38,7 +38,9 @@ class Project:
     def settings(self):
         st = self.load_state()
         return {"orientation": st.get("orientation", "landscape"),
-                "resolution": st.get("resolution", "1080p")}
+                "resolution": st.get("resolution", "1080p"),
+                # 框架升级: 场景锚定链(每场景首镜用锚定图 first-frame),项目级 opt-in
+                "anchor_chain": bool(st.get("anchor_chain", False))}
 
     def update_settings(self, orientation=None, resolution=None):
         st = self.load_state()

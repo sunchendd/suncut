@@ -17,6 +17,9 @@ SYSTEM = ("你是分镜师。把剧本每镜扩写成 ref2va 的 detailed_descri
           "主体居中 central third、点光源氛围;场景 DNA 的关键词必须出现在描述里;"
           "出场角色用 <Subject 1>/<Subject 2> 指代(按各镜 cast 顺序),描述以 '<Subject 1> ' 开头;"
           "双角色镜两人都要有动作,且分别在画面两侧留出空间;"
+          "**双主体镜严禁递物/接触交互(形变事故源): 一主体完成动作,另一主体静立/背对,"
+          "物品放桌面或已在自己手里**;"
+          "**相邻镜景别必须跳变(远全/中近/特写交替),剧本的 imagery_en 记忆点必须写进描述**;"
           "结尾加 'cinematic still, real scene, photorealistic' 压住参考图的设定图味。只输出 JSON。")
 
 
@@ -27,7 +30,11 @@ def run(proj, force=False):
     scene_lines = "\n".join(f"- {s['id']}: {s['dna_en']}" for s in mats["scenes"])
     cast_by_name = {r["char"]: r["profile"] for r in proj.load_stage("cast")["cast"]}
     shots_in = [{"id": s["id"], "scene": s["scene"], "cast": s.get("cast", []),
-                 "shot_en": s["shot_en"], "action_en": s["action_en"]} for s in script["shots"]]
+                 "shot_en": s["shot_en"], "action_en": s["action_en"],
+                 "duration_hint": s.get("duration_hint", "std"),
+                 "imagery_en": s.get("imagery_en", ""),
+                 "emotion_cn": s.get("emotion_cn", "")} for s in script["shots"]]
+    two_by = {s["id"]: len(s.get("cast") or []) > 1 for s in script["shots"]}
     orient_note = ("横构图、主体 central third(成片会中心裁竖版,主体必须在中三分之一)"
                    if proj.settings().get("orientation", "landscape") == "portrait"
                    else "横构图、主体 central third(横版直出)")
@@ -50,7 +57,7 @@ def run(proj, force=False):
 {{"shots": [{{"id": "q1", "detailed_description": "<Subject 1> ...", "overall_soundscape": "..."}}]}}"""
     data = llm.chat_json(config.LLM_TEXT, SYSTEM, user)
     dd_by = {s["id"]: s for s in data["shots"]}
-    dd_by, lint_log = _lint_and_rewrite(shots_in, dd_by)
+    dd_by, lint_log = _lint_and_rewrite(shots_in, dd_by, two_by)
 
     # 参考图必须复制进 runtime 根(infer 容器只挂载 ~/sol-h3-spark-runtime)
     refs_dir = config.SD_RUNTIME / proj.name / "refs"
@@ -98,6 +105,7 @@ def run(proj, force=False):
                            f"non_diegetic_music: {mats['music_en']}"),
                 "note": _shot_note(s, []),
                 "dd": dd,
+                "duration_hint": s.get("duration_hint", "std"),   # 制片剪辑表读取
                 "soundscape": dd_by[s["id"]]["overall_soundscape"],
                 "cast": [],
             }
@@ -121,6 +129,7 @@ def run(proj, force=False):
             ),
             "note": _shot_note(s, in_shot),
             "dd": dd,                       # 留档供单镜重拍时外科手术式改写
+            "duration_hint": s.get("duration_hint", "std"),
             "soundscape": dd_by[s["id"]]["overall_soundscape"],
             "cast": [p["name"] for p in in_shot],
         }
@@ -149,14 +158,17 @@ def _shot_note(s, in_shot):
     return " | ".join(p for p in parts if p)
 
 
-def _lint_and_rewrite(shots_in, dd_by, max_rounds=2):
-    """自动审稿: 确定性 lint 命中 → 带违规原因让 LLM 重写该镜; 运镜全同则要求多样化."""
+def _lint_and_rewrite(shots_in, dd_by, two_by=None, max_rounds=2):
+    """自动审稿: 确定性 lint 命中(双主体镜加查交互高危) → 带违规原因让 LLM 重写该镜;
+    运镜全同则要求多样化."""
     from . import lint as lintmod
+    two_by = two_by or {}
     log = {"rounds": [], "residual": {}}
     shot_en_by = {s["id"]: s["shot_en"] for s in shots_in}
     for rnd in range(1, max_rounds + 1):
         view = [{"id": sid, "shot_en": shot_en_by.get(sid, ""),
-                 "dd": d["detailed_description"]} for sid, d in dd_by.items()]
+                 "dd": d["detailed_description"], "two": two_by.get(sid, False)}
+                for sid, d in dd_by.items()]
         per, cams, variety_ok = lintmod.lint_batch(view)
         if not per and variety_ok:
             log["rounds"].append({"round": rnd, "clean": True, "cameras": cams})
@@ -180,7 +192,8 @@ def _lint_and_rewrite(shots_in, dd_by, max_rounds=2):
             if s["id"] in dd_by:
                 dd_by[s["id"]]["detailed_description"] = s["detailed_description"]
     view = [{"id": sid, "shot_en": shot_en_by.get(sid, ""),
-             "dd": d["detailed_description"]} for sid, d in dd_by.items()]
+             "dd": d["detailed_description"], "two": two_by.get(sid, False)}
+            for sid, d in dd_by.items()]
     per, cams, _ = lintmod.lint_batch(view)
     log["residual"] = {k: [n for n, _, _ in v] for k, v in per.items()}
     return dd_by, log

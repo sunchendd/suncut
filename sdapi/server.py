@@ -148,9 +148,9 @@ class RunBody(BaseModel):
     subs: bool = False              # deliver/master: 烧字幕
 
 
-PROJECT_OPS = {"cast", "cast_manual", "materials", "script", "storyboard", "generate",
-               "review", "dub", "deliver", "master", "retake", "retake_failed", "regen",
-               "produce", "pipeline"}
+PROJECT_OPS = {"cast", "cast_manual", "materials", "outline", "script", "storyboard",
+               "generate", "review", "dub", "deliver", "master", "retake", "retake_failed",
+               "regen", "produce", "pipeline"}
 
 
 @app.post("/api/projects/{name}/run")

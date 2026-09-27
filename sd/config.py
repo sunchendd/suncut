@@ -10,6 +10,11 @@ RUNTIME = HOME / "sol-h3-spark-runtime"
 WORKSHOP = HOME / "桌面/AI角色工坊"
 ASSET_LIB = HOME / "桌面/短剧资产库"         # 道具/场地 跨项目复用库
 DESKTOP = HOME / "桌面"
+
+# ── 绿联 NAS 同步(DXP4800Plus, fstab automount 到 /mnt/ugreen=素材共享) ──
+# 凭据只在 /etc/cifs-creds/ugreen(仓库零凭据);NAS 离线=路径不存在=同步静默跳过。
+# SD_NAS_ROOT=空 环境变量可临时禁用。
+NAS_ROOT = Path(os.environ.get("SD_NAS_ROOT", "/mnt/ugreen/短剧工坊"))
 FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS = FRAMEWORK_ROOT / "projects"
 SD_RUNTIME = RUNTIME / "shortdrama"          # JSONL 必须放 runtime 下(docker 挂载边界)
@@ -30,6 +35,7 @@ SHOT_FPS = 24
 SHOT_SECONDS = SHOT_FRAMES / SHOT_FPS        # 5.0417s
 VIDEO_W, VIDEO_H = 1344, 768
 DEFAULT_BPM = 95                              # 每镜整 8 拍,剪点永远落在拍上
+SHORT_TRIM = 2.6                              # duration_hint=short 的镜在剪辑表里裁到 2.6s(快切)
 CHAR_SEED_BASE = 42
 RETAKE_SEED_STEP = 1009                       # 单镜重拍换 seed 的步长(质数,避免撞)
 

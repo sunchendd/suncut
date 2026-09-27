@@ -16,8 +16,9 @@ PROMPT_TMPL = """{refs_desc}后3张是同一镜头视频的第0.5s/2.5s/4.5s帧(
 
 评审(只输出 JSON;空镜镜 identity 固定给 10):
 {{"identity": 0-10, "action": 0-10, "composition": 0-10,
- "pass": true/false(三项全部>=7 才 true),
- "advice_cn": "不通过时给一句具体重拍建议(如:换运镜/减动作/强调光线);通过则空串"}}"""
+ "text_artifacts": true/false(画面任何位置是否出现乱码/涂痕/无意义文字,信封道具也不例外),
+ "pass": true/false(三项全部>=7 且 text_artifacts=false 才 true),
+ "advice_cn": "不通过时给一句具体重拍建议(如:换运镜/减动作/强调光线/清除画面文字);通过则空串"}}"""
 
 
 def orient_note_of(proj):
@@ -116,9 +117,12 @@ def review(proj, force=False):
             return {"case": case, "tech": tech, "verdict": "error", "advice": str(e)}
         v = v1
         v.update({"case": case, "tech": tech, "video": video})
-        # pass 由程序按双次均值三维分计算(VLM 自报布尔偏保守且与分数不一致)
-        dims = [v.get(k, 0) for k in ("identity", "action", "composition")]
-        v["pass"] = all(d >= 7 for d in dims)
+        # pass 由程序按双次均值三维分计算(VLM 自报布尔偏保守且与分数不一致);
+        # 双主体镜 identity 阈值 8(融合形变事故高发,从严);乱码文字硬拒
+        id_thr = 8 if len(shot.get("cast") or []) > 1 else 7
+        v["identity_threshold"] = id_thr
+        v["pass"] = (v["identity"] >= id_thr and v["action"] >= 7
+                     and v["composition"] >= 7 and not v.get("text_artifacts"))
         v["verdict"] = "pass" if v["pass"] else "retake"
         return v
 
@@ -145,9 +149,62 @@ def review(proj, force=False):
     proj._write_state(state)
 
     passed = sum(1 for r in results if r.get("verdict") == "pass")
-    data = {"results": results, "passed": passed, "total": len(results)}
+    data = {"results": results, "passed": passed, "total": len(results),
+            "consistency": _consistency_check(proj, script)}
     proj.save_stage("review", data, meta={"passed": f"{passed}/{len(results)}"})
     return data
+
+
+def _consistency_check(proj, script):
+    """跨镜拼图校验: 全片首帧拼成一张图,一次 VLM 调用比对脸/服装/场景/色调跨镜一致性.
+
+    逐镜独立打分看不见跨镜漂移(衬衫每镜换一件/农舍两栋的事故都漏在这),
+    拼图一次全看,只报问题不翻转逐镜 verdict(由人工/重拍流程消化).
+    """
+    frames = []
+    for s in script["shots"]:
+        p = proj.path / "review" / f"{proj.name}-{s['id']}-f0.jpg"
+        if p.exists():
+            frames.append((s["id"], p))
+    if len(frames) < 2:
+        return {"checked": False, "note": "首帧不足"}
+    try:
+        from PIL import Image, ImageDraw
+        cols, cell_w = 4, 480
+        thumbs = []
+        for sid, p in frames:
+            im = Image.open(p)
+            h = round(im.height * cell_w / im.width)
+            thumbs.append((sid, im.resize((cell_w, h))))
+        cell_h = max(t.height for _, t in thumbs) + 28
+        rows = -(-len(thumbs) // cols)
+        sheet_im = Image.new("RGB", (cols * cell_w, rows * cell_h), "black")
+        draw = ImageDraw.Draw(sheet_im)
+        for i, (sid, t) in enumerate(thumbs):
+            x, y = (i % cols) * cell_w, (i // cols) * cell_h
+            sheet_im.paste(t, (x, y + 28))
+            draw.text((x + 8, y + 4), sid, fill="yellow")
+        sheet = proj.path / "review" / "contact-sheet.jpg"
+        sheet_im.save(sheet, quality=88)
+        order = "、".join(sid for sid, _ in frames)
+        text = (f"这张拼图按顺序是全片 {len(frames)} 个镜头的首帧(左上角黄字标注镜号,顺序: {order})。"
+                "检查跨镜一致性: ①同一角色在不同镜头是否同一张脸、同一套衣服"
+                "(颜色/材质/图案逐一比);②同一场景的不同镜头是否同一处;"
+                "③色调是否连贯(刻意冷暖分段除外)。只输出 JSON: "
+                '{"consistent": true/false, "issues": ["q3:衬衫从纯色变成格子,与q1不一致", ...]}')
+        out = None
+        for _ in range(2):                       # vision 空回复偶发,重试一次
+            try:
+                out = llm.extract_json(llm.vision(text, [str(sheet)]))
+                break
+            except llm.LLMError:
+                continue
+        if out is None:
+            return {"checked": False, "note": "vision 两次空回复"}
+        return {"checked": True, "consistent": bool(out.get("consistent")),
+                "issues": out.get("issues", [])[:8]}
+    except Exception as e:
+        return {"checked": False, "note": str(e)[:150]}
 
 
 def has_passing_take(state, case):

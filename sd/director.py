@@ -6,6 +6,7 @@
 import json
 import re
 import subprocess
+from pathlib import Path
 
 from . import config, llm
 from .lint import lint_dd, violations_feedback
@@ -35,7 +36,7 @@ REWRITE_SYSTEM = ("你是导演执行重拍修订。只改 detailed_description 
                   "场景与原意不变、英文一段。只输出 JSON。")
 
 
-def _run_infer(rows, outdir, log_path, timeout=7200):
+def _run_infer(rows, outdir, log_path, timeout=7200, first_frame=None):
     jf = outdir.with_suffix(".jsonl")
     jf.parent.mkdir(parents=True, exist_ok=True)
     jf.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
@@ -48,8 +49,9 @@ def _run_infer(rows, outdir, log_path, timeout=7200):
         n += 1
         batch_dir = outdir.parent / f"{outdir.name}-{n}" / "batch"
     paths = PATHS_BY_TASK.get(rows[0].get("task", "ref2va"), "paths-ref2va.json")
+    ff = f" --first-frame {first_frame}" if first_frame else ""
     inner = (f"cd {config.SOL_PKG} && python3 infer.py --paths {paths} "
-             f"--prompts {jf} --output-dir {batch_dir}")
+             f"--prompts {jf} --output-dir {batch_dir}{ff}")
     cmd = f"export {config.INFER_ENV}; sg docker -c '{inner}'"
     with open(log_path, "w") as log:
         r = subprocess.run(["bash", "-c", cmd], stdout=log,
@@ -65,6 +67,55 @@ def _collect(batch_dir, rows):
     return videos
 
 
+def _ensure_scene_anchors(proj):
+    """场景锚定图(框架升级): 每场景一张无人物空镜图,钉死同场景多镜的美术一致性
+    (评审事故: 同一项目里出现两栋办公室/两栋农舍)。生成一次后写回 materials.json."""
+    from . import qwenimage
+    mats = proj.load_stage("materials") or {}
+    sc_dir = proj.path / "scenes"
+    sc_dir.mkdir(exist_ok=True)
+    for s in mats.get("scenes", []):
+        if s.get("anchor") and Path(s["anchor"]).exists():
+            continue
+        dst = sc_dir / f"{s['id']}.png"
+        if not dst.exists():
+            seed = (hash(s["id"]) % 9000000) + 100000
+            qwenimage._gen_one(
+                f"{s['dna_en']}, empty scene without any people, cinematic still, "
+                f"photorealistic, no text, 16:9 wide framing",
+                seed, dst, 25, config.VIDEO_W, config.VIDEO_H)
+            print(f"[导演] 场景锚定图 {s['id']}: {dst.name}")
+        s["anchor"] = str(dst)
+    (proj.path / "materials.json").write_text(json.dumps(mats, ensure_ascii=False, indent=1))
+    return mats
+
+
+def _shoot_anchored(proj, rows, videos):
+    """锚定链(t2va 限定): 空镜行内注入场景锚定图 first_frame.
+
+    实测(2026-09-26): infer.py 的 ref2va 任务强制 references、拒绝 first_frame;
+    只有 t2va 接受行内 first_frame。ref2va 的场景一致性靠场景 DNA 逐字复用
+    +光线纪律(跨镜拼图校验已验证有效);把锚定图塞进 ref2va references 会稀释
+    角色参考,列为后续实验项。
+    """
+    script = proj.load_stage("script")
+    scene_by_case = {f"{proj.name}-{s['id']}": s.get("scene") for s in script["shots"]}
+    mats = proj.load_stage("materials") or {}
+    anchor_by_scene = {s["id"]: s.get("anchor") for s in mats.get("scenes", [])}
+    anchor_by_scene = {k: v for k, v in anchor_by_scene.items() if v and Path(v).exists()}
+    first_of_scene = {}
+    for r in rows:
+        sc = scene_by_case.get(r["case_id"])
+        if sc and sc not in first_of_scene and anchor_by_scene.get(sc):
+            first_of_scene[sc] = r
+    for sc, r in first_of_scene.items():
+        if r["case_id"] in videos or r.get("task", "ref2va") != "t2va":
+            continue
+        r["first_frame"] = anchor_by_scene[sc]
+        print(f"[导演] 锚定空镜 {r['case_id']} (场景 {sc} 锚定图 → 行内 first_frame)")
+    return rows
+
+
 def shoot(proj, force=False):
     """草稿档全片生成。infer.py 一批只能跑一个 task,按 ref2va/t2va 自动分批."""
     if proj.stage_done("generate") and not force:
@@ -76,6 +127,9 @@ def shoot(proj, force=False):
         proj.save_stage("generate", {"videos": videos, "attempt": "a1"},
                         meta={"shots": len(videos), "reused": True})
         return videos
+    if proj.settings().get("anchor_chain"):
+        _ensure_scene_anchors(proj)
+        rows = _shoot_anchored(proj, rows, videos)   # 场景首镜锚定生成,剩余照常分批
     for gi, task in enumerate(dict.fromkeys(r.get("task", "ref2va") for r in rows)):
         grp = [r for r in rows if r.get("task", "ref2va") == task
                and r["case_id"] not in videos]

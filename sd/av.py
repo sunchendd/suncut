@@ -145,17 +145,19 @@ def burn_vf(srt_name, extra=""):
 
 
 def _audio_chain(bed_src, vo_src, dur):
-    """[aout] 滤镜串: 床响度统一(-17 LUFS) + VO 侧链压制(-13 LUFS,人声在上).
+    """[aout] 滤镜串: 床响度统一(-18 LUFS,给 VO 留 5dB 台阶) + VO 侧链压制(-13 LUFS,人声在上)
+    + 终混 true-peak 限幅 -1.5dBTP(D 轮评审: 旧链峰值顶到 -0.9dB 削波边缘且无气口).
 
     bed_src 如 "0:a"(视频原声)或 "2:a"(BGM 替换,输入序: 0=video 1=vo 2=bgm,
     外层 -stream_loop 循环);dur 由 mix_vo 实测传入,防循环输入拖成无限长。
     """
     bed = (f"[{bed_src}]atrim=0:{dur:.3f},asetpts=N/SR/TB,"
            if bed_src != "0:a" else f"[{bed_src}]")
-    return (f"{bed}loudnorm=I=-17:TP=-1.5:LRA=11,aresample=48000[bed];"
+    return (f"{bed}loudnorm=I=-18:TP=-1.5:LRA=11,aresample=48000[bed];"
             f"[{vo_src}]loudnorm=I=-13:TP=-1.2:LRA=9,aresample=48000,asplit=2[sc][vo];"
-            f"[bed][sc]sidechaincompress=threshold=0.06:ratio=8:attack=20:release=380[bedd];"
-            f"[bedd][vo]amix=inputs=2:duration=first:normalize=0[aout]")
+            f"[bed][sc]sidechaincompress=threshold=0.05:ratio=10:attack=20:release=420[bedd];"
+            f"[bedd][vo]amix=inputs=2:duration=first:normalize=0,"
+            f"alimiter=limit=0.8413:level=false[aout]")   # -1.5dBTP 安全岛
 
 
 def mix_vo(video, vo, out, bgm=None):
@@ -184,4 +186,40 @@ def concat(segs, outlist, out, reencode=True):
         cmd += ["-c", "copy"]
     cmd += [str(out)]
     run(cmd, timeout=3600)
+    return str(out)
+
+
+# ---------------- D 轮框架升级: 剪辑表重剪 / 片名卡 ----------------
+def smart_concat(segs, durs, out):
+    """剪辑表拼接: 每镜按 duration_hint 裁头保留(durs[i]<源时长则 trim),单次重编码.
+
+    打破"生成一条拼一条"的等距切点(评审: 6 切点精确等距 5.04s 的幻灯片感)。
+    """
+    n = len(segs)
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    for s in segs:
+        cmd += ["-i", str(s)]
+    fc = []
+    for i, d in enumerate(durs):
+        fc.append(f"[{i}:v]trim=duration={d:.3f},setpts=PTS-STARTPTS[v{i}]")
+        fc.append(f"[{i}:a]atrim=duration={d:.3f},asetpts=PTS-STARTPTS[a{i}]")
+    fc.append("".join(f"[v{i}][a{i}]" for i in range(n)) +
+              f"concat=n={n}:v=1:a=1[vout][araw];"
+              f"[araw]alimiter=limit=0.8413:level=false[aout]")   # -1.5dBTP
+    cmd += ["-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "[aout]",
+            "-c:v", "libx264", "-crf", "17", "-preset", "medium",
+            "-c:a", "aac", "-b:a", "160k", str(out)]
+    run(cmd, timeout=3600)
+    return str(out)
+
+
+def make_title_clip(png, out, dur=1.7, w=1344, h=768):
+    """片尾片名卡: PNG(loop) + 静音轨 → 可与正片 concat 的 mp4."""
+    run(["ffmpeg", "-y", "-loglevel", "error",
+         "-loop", "1", "-t", f"{dur:.3f}", "-i", str(png),
+         "-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo",
+         "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black",
+         "-c:v", "libx264", "-crf", "17", "-preset", "medium",
+         "-c:a", "aac", "-b:a", "128k", "-shortest", str(out)])
     return str(out)

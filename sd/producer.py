@@ -71,6 +71,10 @@ def produce(name, auto_retake=True, force_stage=None):
         rep = report.write_report(proj)
         paths.update(cover)
         paths["report"] = rep
+        title = (proj.load_stage("script") or {}).get("title_cn", proj.name)
+        paths["nas_extra"] = _nas_sync(
+            {cover["desktop"]: Path(cover["desktop"]).name,
+             rep: Path(rep).name}, "成片", f"{title}-{proj.name}")
     except Exception as e:   # 封面/报告失败不阻塞交付
         print(f"[制片] 封面/报告跳过: {e}")
     m = Metrics(proj)
@@ -102,24 +106,110 @@ def _final_encode(src, out, settings, subs_srt=None, crf=17, preset="medium",
             W, H, settings["orientation"], look=look))
         cwd = str(Path(subs_srt).parent)          # srt 相对名,规避滤镜串转义
     cmd += ["-vf", vf, "-c:v", "libx264", "-crf", str(crf), "-preset", preset,
+            "-af", "alimiter=limit=0.8413:level=false",   # 交付级 -1.5dBTP 兜底
             "-c:a", "aac", "-b:a", abitrate, str(out)]
     av.run(cmd, timeout=3600, cwd=cwd)
     return {"path": str(out), "w": W, "h": H}
 
 
+def _nas_sync(files, sub, key):
+    """交付物同步到绿联 NAS(短剧工坊/);automount 按需挂载,NAS 离线时静默跳过,
+    绝不阻塞交付。files: {本地路径: 目标文件名}。"""
+    root = config.NAS_ROOT / sub / key
+    copied = []
+    if not config.NAS_ROOT.exists():
+        print(f"[制片] NAS 未挂载({config.NAS_ROOT}),跳过同步")
+        return copied
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        for src, name in files.items():
+            if not Path(src).exists():
+                continue
+            dst = root / name
+            if dst.exists() and dst.stat().st_size == Path(src).stat().st_size:
+                continue                       # 幂等: 同大小不重传
+            import shutil
+            shutil.copy2(src, dst)
+            copied.append(str(dst))
+        if copied:
+            print(f"[制片] NAS 同步 → {root} ({len(copied)} 个文件)")
+    except OSError as e:                       # NAS 半路掉线等,交付不受影响
+        print(f"[制片] NAS 同步失败(忽略): {e}")
+    return copied
+
+
+def _edit_durations(proj, cases):
+    """剪辑表时长: storyboard 行 duration_hint=short → SHORT_TRIM,否则满镜."""
+    sb = proj.load_stage("storyboard")
+    hints = {}
+    try:
+        for line in open(sb["jsonl"]):
+            row = json.loads(line)
+            hints[row["case_id"]] = row.get("duration_hint", "std")
+    except Exception:
+        pass
+    return [config.SHORT_TRIM if hints.get(c) == "short" else config.SHOT_SECONDS
+            for c in cases]
+
+
+def _title_clip(proj, out_dir):
+    """片尾片名卡: PIL 黑底字卡(venv 子进程,ttc face 精确选 SC) → 1.7s 静音 mp4."""
+    import subprocess
+    script = proj.load_stage("script") or {}
+    title = script.get("title_cn", proj.name)
+    logline = script.get("logline", "")
+    png = out_dir / "title-card.png"
+    code = (
+        "from PIL import Image, ImageDraw, ImageFont\n"
+        "FONT_PATH = '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc'\n"
+        "def load(face_hint, size):\n"
+        "    for idx in range(8):\n"
+        "        f = ImageFont.truetype(FONT_PATH, size, index=idx)\n"
+        "        if face_hint in ' '.join(f.getname()):\n"
+        "            return f\n"
+        "    return ImageFont.truetype(FONT_PATH, size)\n"
+        "W, H = 1344, 768\n"
+        "im = Image.new('RGB', (W, H), (8, 8, 10))\n"
+        "d = ImageDraw.Draw(im)\n"
+        "def center(text, font, y, fill):\n"
+        "    bb = d.textbbox((0, 0), text, font=font)\n"
+        "    d.text(((W - (bb[2] - bb[0])) / 2 - bb[0], y), text, font=font, fill=fill)\n"
+        f"center({title!r}, load('SC', 96), int(H * 0.40), (245, 242, 235))\n"
+        f"center({logline!r}, load('SC', 34), int(H * 0.40) + 130, (170, 170, 165))\n"
+        "im.save(r'%s')\nprint('TITLE_OK')" % str(png)
+    )
+    py = config.HOME / "venvs/imagegen/bin/python"
+    r = subprocess.run([str(py), "-c", code], capture_output=True, text=True)
+    if r.returncode != 0 or not png.exists():
+        print(f"[制片] 片名卡失败(跳过): {(r.stderr or '')[-160:]}")
+        return None
+    return av.make_title_clip(png, out_dir / "title-card.mp4")
+
+
 def deliver(proj, force=False, subs=False):
-    """按剧本顺序选每镜最佳条 → 拼接 → (配音混入) → 横/竖+分辨率 → deliver/ 与桌面."""
+    """按剧本顺序选每镜最佳条 → 剪辑表拼接(short 快切破等距节奏) → (配音混入)
+    → 片尾片名卡 → 横/竖+分辨率 → deliver/ 与桌面."""
     settings = proj.settings()
     out_dir = proj.path / "deliver"
     out_dir.mkdir(exist_ok=True)
     segs, pick_log = av.pick_best(proj)
     (proj.path / "picks.json").write_text(json.dumps(pick_log, ensure_ascii=False, indent=1))
 
-    base = av.concat(segs, proj.path / "concat.txt", out_dir / "base.mp4", reencode=True)
+    cases = [p["case"] for p in pick_log]
+    durs = _edit_durations(proj, cases)
+    if any(d < config.SHOT_SECONDS - 0.01 for d in durs):
+        base = av.smart_concat(segs, durs, out_dir / "base.mp4")   # 剪辑表重剪
+        print(f"[制片] 剪辑表重剪: {[round(d, 1) for d in durs]}")
+    else:
+        base = av.concat(segs, proj.path / "concat.txt", out_dir / "base.mp4", reencode=True)
     vo = av.vo_of(proj)
     if vo:                                         # 配音师产物 → 侧链压制混入
         base = av.mix_vo(base, vo, out_dir / "base-dub.mp4", bgm=av.bgm_of(proj))
         print(f"[制片] 混入配音: {vo}")
+    card = _title_clip(proj, out_dir)              # 0.5s 黑场由卡自带前黑边近似
+    if card:
+        base = av.concat([base, card], proj.path / "concat-card.txt",
+                         out_dir / "base-card.mp4", reencode=True)
 
     srt = proj.path / "subtitles" / f"{proj.name}.srt"
     if not srt.exists():
@@ -139,8 +229,10 @@ def deliver(proj, force=False, subs=False):
     except OSError:
         import shutil
         shutil.copy2(h, v)
+    nas = _nas_sync({h: v.name, v: v.name}, "成片", f"{title}-{proj.name}")
     return {"deliver": str(h), "desktop": str(v), "resolution": f"{W}x{H}",
-            "orientation": label, "subs": bool(subs), "dubbed": bool(vo)}
+            "orientation": label, "subs": bool(subs), "dubbed": bool(vo),
+            "nas": nas}
 
 
 def deliver_master(proj, force=False, subs=False):
@@ -186,4 +278,6 @@ def deliver_master(proj, force=False, subs=False):
     except OSError:
         import shutil
         shutil.copy2(h, v)
-    return {"master": str(h), "master_desktop": str(v), "resolution": f"{W}x{H}"}
+    nas = _nas_sync({h: v.name, v: v.name}, "母版", f"{title}-{proj.name}")
+    return {"master": str(h), "master_desktop": str(v), "resolution": f"{W}x{H}",
+            "nas": nas}

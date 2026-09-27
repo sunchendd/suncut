@@ -43,6 +43,14 @@ def op_simple(stage):
     return run
 
 
+def op_outline(job, name=None, force=False, **_):
+    """两段式编剧第一段: 叙事大纲(钩子/情绪曲线/意象库),可独立运行审阅."""
+    proj = Project(name)
+    _stage(job, "outline", "3/8 编剧·叙事大纲")
+    with stopwatch(proj, "outline"):
+        return screenwriter.run_outline(proj, force=force)
+
+
 def op_cast_manual(job, name=None, cast=None, **_):
     """手动选角(工作台): 1-2 名演员 + 角色名;缺三视图自动补(GPU)."""
     proj = Project(name)
@@ -131,6 +139,13 @@ def op_pipeline(job, name=None, mode="stepwise", **_):
     gate = (lambda *a, **k: None) if auto else job.await_gate
 
     for stage, label, fn, _gpu in STAGES[:4]:
+        if stage == "script" and not proj.stage_done("script"):
+            # 两段式编剧: 剧本未成先出叙事大纲(stepwise 挂审阅门,老项目剧本已成则跳过)
+            _stage(job, "outline", "3/8 编剧·叙事大纲")
+            screenwriter.run_outline(proj)
+            if not auto:
+                gate("outline_done", "叙事大纲完成 —— 审阅钩子/情绪曲线/意象库后放行",
+                     meta={"artifact": "outline"})
         with stopwatch(proj, stage):
             _stage(job, stage, label)
             fn(proj, force=False)
@@ -138,7 +153,7 @@ def op_pipeline(job, name=None, mode="stepwise", **_):
             gate(f"{stage}_done", f"{label}完成 —— 请在工作台审阅后放行",
                  meta={"artifact": stage})
 
-    with manager.gpu_lock():
+    with manager.gpu_lock:
         with stopwatch(proj, "generate"):
             _stage(job, "generate", "5/8 导演开拍")
             director.shoot(proj, force=False)
@@ -310,6 +325,7 @@ OPS = {
     "cast":         (op_simple("cast"), False, False),
     "cast_manual":  (op_cast_manual, True, False),
     "materials":    (op_simple("materials"), False, False),
+    "outline":      (op_outline, False, False),
     "script":       (op_simple("script"), False, False),
     "storyboard":   (op_simple("storyboard"), False, False),
     "generate":     (op_simple("generate"), True, True),
@@ -334,7 +350,7 @@ OPS = {
 }
 
 OP_TITLES = {"cast": "招聘选角", "cast_manual": "手动选角", "materials": "服化道",
-             "script": "编剧", "storyboard": "分镜", "generate": "导演开拍",
+             "outline": "叙事大纲", "script": "编剧", "storyboard": "分镜", "generate": "导演开拍",
              "review": "审片", "dub": "配音配乐",
              "deliver": "制片交付", "master": "母版超分", "retake": "单镜重拍", "retake_failed": "一键重拍未过镜",
              "regen": "14步重生成", "produce": "全自动流水线",

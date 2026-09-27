@@ -40,11 +40,13 @@ def _tts(text, voice, out_path, rate_pct=0):
 
 
 def _segments(proj_name, script, narrator_voice, voices):
-    """剧本 → VO 段时间表(与编剧 SRT 同一套时间槽公式,声画同步)."""
-    S = config.SHOT_SECONDS
+    """剧本 → VO 段时间表(与编剧 SRT 同一套剪辑表时间槽公式,声画同步)."""
+    from .screenwriter import _durations
     segs = []
-    for i, shot in enumerate(script["shots"], 1):
-        t0 = (i - 1) * S
+    t = 0.0
+    for shot, S in zip(script["shots"], _durations(script["shots"])):
+        t0 = t
+        t = t0 + S
         events = []
         for d in shot.get("dialogue_cn") or []:
             events.append((d["line"], voices.get(d["who"], narrator_voice), d["who"]))
@@ -140,7 +142,8 @@ def run(proj, force=False):
                      "note": "剧本无台词无旁白,空音轨"})
         proj.save_stage("dub", data, meta={"segments": 0})
         return data
-    total_s = len(script["shots"]) * config.SHOT_SECONDS
+    from .screenwriter import _durations
+    total_s = sum(_durations(script["shots"]))    # 剪辑表实际总长(short 镜已裁)
     vo_full = _build_vo_track(proj, segs, vo_dir, total_s)
     data["segments"] = segs
     data["vo_full"] = vo_full
