@@ -105,12 +105,12 @@ export default async function render(root) {
         el('button', { class: 'btn primary', onclick: newProjectModal }, '＋ 新建项目'))),
     list);
 
-  // 任务事件频繁(每次状态推进一条),节流合并刷新,避免整页重绘抖动
+  // 任务事件频繁(每次状态推进一条),节流合并刷新;不用 rAF(后台标签页会挂起)
   let pending = false;
   const fetchOverview = () => {
     api.get('/api/overview').then(d => {
       data = d;
-      if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; paint(); }); }
+      if (!pending) { pending = true; setTimeout(() => { pending = false; paint(); }, 0); }
     }).catch(() => {});
   };
   let timer = null;

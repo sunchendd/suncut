@@ -165,6 +165,20 @@ code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
   padding: 10px 12px 4px; white-space: nowrap;
   transition: opacity .18s var(--ease);
 }
+/* 组头(ZCode 风格):label + 行内快捷按钮,项目组置顶紧贴菜单栏 */
+.nav-group-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 4px 12px; }
+.nav-group-head .nav-group-label { padding: 0; }
+#sidenav.collapsed .nav-group-head { justify-content: center; padding: 8px 0; }
+#sidenav.collapsed .nav-group-head .nav-group-label { display: none; }
+.mini-add {
+  width: 22px; height: 22px; border-radius: 6px; border: none; background: transparent;
+  color: var(--fg-faint); cursor: pointer; padding: 0; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s var(--ease), color .15s var(--ease), transform .12s var(--ease);
+}
+.mini-add:hover { background: var(--acc-soft); color: var(--acc); }
+.mini-add:active { transform: scale(.88); }
+.mini-add svg { width: 13px; height: 13px; }
 #sidenav.collapsed .nav-group-label { opacity: 0; height: 10px; padding: 6px 0 0; overflow: hidden; }
 .nav-sep { height: 1px; background: var(--line); margin: 8px 6px; flex-shrink: 0; }
 #sidenav a[data-nav], #nav-projects a {

@@ -291,12 +291,92 @@ def _vlm_check_turnaround(png, char):
     return ok, d.get("reason", "")
 
 
+def _turnaround_prompt(char):
+    anchor = f"{char['face_dna']}, wearing {char['outfit_dna']}"
+    game = char.get("look") == "game"
+    tmpl = TURNAROUND_TMPL_GAME if game else TURNAROUND_TMPL
+    neg = TURNAROUND_NEG_GAME if game else TURNAROUND_NEG
+    prompt = tmpl.format(anchor=anchor)
+    refs = None
+    if char.get("portrait"):
+        prompt = ("Recreate the exact character from the reference portrait as a "
+                  "photorealistic live-action person for a film production — identical "
+                  "hairstyle, hair color, eye color, skin tone and outfit colors. " + prompt)
+        refs = [char["portrait"]]
+    return prompt, neg, refs
+
+
+def _closeup_prompt(char):
+    face, outfit = char["face_dna"], char["outfit_dna"]
+    makeup = ("natural fresh makeup, healthy rosy complexion, a warm friendly expression"
+              if "少年" not in face and "girl" not in face.lower()
+              else "natural fresh complexion, lively curious expression")
+    prompt = qwenimage.CLOSEUP_TMPL.format(face=face, outfit=outfit, makeup=makeup)
+    if char.get("portrait"):
+        prompt = ("Recreate the exact character from the reference portrait as a "
+                  "photorealistic live-action person for a film production, keeping the "
+                  "identical hairstyle, hair color, eye color, skin tone and outfit "
+                  "colors. " + prompt)
+    return prompt
+
+
+def gen_bundle(char):
+    """一次模型加载跑完 三视图 + 3 张特写候选(省 3×~160s 重载),再 VLM 选优.
+
+    VLM 自检不过的环节走单张重掷回退;任何异常由调用方决定是否回退老链路。
+    """
+    turn_dir = Path(char["dir"]) / "1_设定图"
+    close_dir = Path(char["dir"]) / "2_视频参考"
+    turn_dir.mkdir(parents=True, exist_ok=True)
+    close_dir.mkdir(parents=True, exist_ok=True)
+    turn_dst = turn_dir / "三视图.png"
+    t_prompt, t_neg, refs = _turnaround_prompt(char)
+    c_prompt = _closeup_prompt(char)
+    seeds = [char["seed"] + off for off in (0, 777, 1234)]
+    jobs = [{"prompt": t_prompt, "seed": char["seed"], "dst": str(turn_dst),
+             "width": 2528, "height": 1696, "steps": 40, "neg": t_neg}]
+    jobs += [{"prompt": c_prompt, "seed": s, "dst": str(close_dir / f"_closeup_cand_{s}.png"),
+              "width": 1024, "height": 1280, "steps": 25,
+              "neg": qwenimage.CLOSEUP_NEG} for s in seeds]
+    todo = [j for j in jobs if not Path(j["dst"]).exists()]
+    if todo:
+        print(f"[签约] {char['name']} 合批生成 {len(todo)} 张(单次模型加载)…")
+        qwenimage._gen_many(todo, ref_images=refs)
+    # 三视图自检(未过 → 单张重掷,老链路)
+    ok, reason = _vlm_check_turnaround(turn_dst, char)
+    if not ok:
+        print(f"[签约] 三视图自检未过({reason}),单张重掷…")
+        qwenimage._gen_one(t_prompt, char["seed"] + 88, turn_dst, steps=40,
+                           width=2528, height=1696, neg=t_neg, timeout=2700,
+                           ref_images=refs)
+        ok, reason = _vlm_check_turnaround(turn_dst, char)
+        if not ok:
+            raise RuntimeError(f"三视图两次未过自检: {reason}")
+    qwenimage.crop_views(Path(char["dir"]), close_dir)
+    # 3 候选选优
+    cands = [(s, close_dir / f"_closeup_cand_{s}.png") for s in seeds]
+    best = qwenimage._vlm_pick(char, cands)
+    Path(best).rename(close_dir / "01_正面特写.png")
+    for _, c in cands:
+        Path(c).unlink(missing_ok=True)
+    refs_out = {}
+    for f in sorted(close_dir.glob("*.png")):
+        key = {"01": "closeup", "02": "front", "03": "side"}.get(f.name[:2])
+        if key:
+            refs_out[key] = str(f)
+    return refs_out
+
+
 def full_package(char):
-    """签约全链: 三视图 → 裁正/侧身 → 3种子特写 VLM 选优."""
+    """签约全链: 合批生成(一次加载)→ 失败回退逐张老链路."""
     _wait_gpu_free(char["dir"])
-    gen_turnaround(char)
-    qwenimage.crop_views(Path(char["dir"]), Path(char["dir"]) / "2_视频参考")
-    refs = qwenimage.buildrefs(char)
+    try:
+        refs = gen_bundle(char)
+    except Exception as e:
+        print(f"[签约] 合批生成失败({str(e)[:120]}),回退逐张链路…")
+        gen_turnaround(char)
+        qwenimage.crop_views(Path(char["dir"]), Path(char["dir"]) / "2_视频参考")
+        refs = qwenimage.buildrefs(char)
     print(f"[签约] {char['name']} 全套资料完成: {sorted(refs)}")
     return refs
 

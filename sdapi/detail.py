@@ -190,6 +190,7 @@ def pool_list():
         out.append({"name": c["name"],
                     "face_dna": c.get("face_dna"), "outfit_dna": c.get("outfit_dna"),
                     "seed": c.get("seed"), "dir": c.get("dir"),
+                    "portrait": c.get("portrait"), "look": c.get("look", "cn"),
                     "refs": {k: str(v) for k, v in refs.items() if v},
                     "complete": all(refs.get(k) for k in ("closeup", "front", "side"))})
     return out

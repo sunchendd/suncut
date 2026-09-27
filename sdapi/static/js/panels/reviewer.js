@@ -12,7 +12,7 @@ export default function render(ctx) {
     el('div', {},
       el('h2', {}, '审片'),
       el('p', { class: 'page-sub' },
-        'glm-4.5v 双次评审取均值(单次噪声±4),三维分≥7 判过;分数历史只升不降;人工保留否决权。')),
+        'VLM 双次评审取均值(单次噪声±4),三维分≥7 判过;分数历史只升不降;人工保留否决权。')),
     el('div', { class: 'row' },
       d.review_stale ? el('span', { class: 'chip bad', title: '重拍/重生成后旧审片已作废,请重新审片' }, '⚠ 重拍后待复审') : null,
       rv.total ? el('span', { class: `chip ${!d.review_stale && rv.passed === rv.total ? 'ok' : 'warn'}` },

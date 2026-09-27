@@ -40,17 +40,22 @@ try {
 
 <div id="layout">
   <nav id="sidenav">
+    <div class="nav-group" id="nav-proj-group" style="flex:1;min-height:0">
+      <div class="nav-group-head">
+        <span class="nav-group-label">项目</span>
+        <button class="mini-add" id="nav-add-proj" title="新建项目" aria-label="新建项目">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div id="nav-projects"></div>
+    </div>
+    <div class="nav-sep"></div>
     <div class="nav-group">
       <div class="nav-group-label">工作台</div>
       <a href="#/dashboard" data-nav="dashboard" title="仪表盘">
         <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
         <span class="txt">仪表盘</span>
       </a>
-    </div>
-    <div class="nav-sep"></div>
-    <div class="nav-group" style="flex:1;min-height:0">
-      <div class="nav-group-label">项目</div>
-      <div id="nav-projects"></div>
     </div>
     <div class="nav-sep"></div>
     <div class="nav-group">

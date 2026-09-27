@@ -55,12 +55,12 @@ function highlightNav(hash) {
     a.classList.toggle('active', hash === `#/project/${a.dataset.name}`));
 }
 
-// ---------------- 侧栏项目列表(rAF 合帧重绘) ----------------
+// ---------------- 侧栏项目列表(合帧重绘;不用 rAF —— 后台标签页/不可见面板会挂起导致侧栏空白) ----------------
 let sidePending = false;
 function scheduleSidenav() {
   if (sidePending) return;
   sidePending = true;
-  requestAnimationFrame(() => { sidePending = false; paintSidenav(); });
+  setTimeout(() => { sidePending = false; paintSidenav(); }, 0);
 }
 
 function paintSidenav() {
@@ -213,10 +213,18 @@ document.getElementById('side-toggle').addEventListener('click', () => {
   syncSideToggle();
 });
 document.getElementById('new-proj-btn').addEventListener('click', newProjectModal);
+document.getElementById('nav-add-proj').addEventListener('click', newProjectModal);
 syncSideToggle();
 
 bus.start();
 paintTicker();
 refreshSidenav();
+// WS 只推状态变化,不重播已有任务:启动时拉一次活跃任务,跑马灯才不会假显示"空闲"
+api.get('/api/jobs').then(r => {
+  for (const j of (r.jobs || [])) {
+    if (['queued', 'running', 'awaiting'].includes(j.status)) store.jobs.set(j.id, j);
+  }
+  paintTicker();
+}).catch(() => {});
 window.addEventListener('hashchange', route);
 route();

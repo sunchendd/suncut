@@ -6,6 +6,7 @@
 """
 import re
 import subprocess
+import time
 from pathlib import Path
 
 from . import config
@@ -152,6 +153,90 @@ _say("SAVED " + r"{dst}" + f" {{time.time() - _t0:.0f}}s")
     if proc.returncode != 0 or not dst.exists():
         raise RuntimeError(f"Qwen 图像生成失败: rc={proc.returncode} stderr={err[-800:]}")
     return dst
+
+
+def _gen_many(jobs, ref_images=None, timeout=2700):
+    """一次加载模型,顺序生成多张图(省去每张 ~160s 的重复加载).
+
+    jobs: [{prompt, seed, dst, width, height, steps, neg?}, ...]
+    已存在的 dst 自动跳过(断点续跑);任一张失败即抛错(调用方决定回退)。
+    """
+    import json as _json
+    all_jobs = list(jobs)
+    jobs = [j for j in jobs if not Path(j["dst"]).exists()]
+    if not jobs:
+        return [str(Path(j["dst"])) for j in all_jobs]
+    ref_code = ""
+    if ref_images:
+        ref_code = ("from PIL import Image\n"
+                    "refs = [Image.open(" + repr(str(ref_images[0])) +
+                    ").convert('RGB').resize((512, 512))]\n"
+                    + "".join("refs.append(Image.open(" + repr(str(p)) +
+                              ").convert('RGB').resize((512, 512)))\n"
+                              for p in ref_images[1:]))
+    plan = _json.dumps([{k: (str(v) if k == "dst" else v) for k, v in j.items()
+                         if k in ("prompt", "seed", "dst", "width", "height", "steps", "neg")}
+                        for j in jobs], ensure_ascii=False)
+    script = f"""
+import os, time, json
+os.environ.setdefault("DIFFUSERS_ATTN_BACKEND", "_native_cudnn")
+_t0 = time.time()
+def _say(msg):
+    try: print(msg, flush=True)
+    except (BrokenPipeError, OSError):
+        pass
+{ref_code}
+import torch
+torch.set_float32_matmul_precision("high")
+from diffusers import QwenImage21Pipeline
+pipe = QwenImage21Pipeline.from_pretrained(r"{MODEL}", torch_dtype=torch.bfloat16).to("cuda")
+try: pipe.vae.enable_tiling()
+except Exception: pass
+try: pipe.set_progress_bar_config(disable=True)
+except Exception: pass
+_jobs = json.loads({plan!r})
+for i, j in enumerate(_jobs, 1):
+    _say("JOB %d/%d %s ..." % (i, len(_jobs), os.path.basename(j["dst"])))
+    t1 = time.time()
+    def _cb(p, step, t, kw):
+        if step % 10 == 0:
+            _say("  STEP %d/%d %.0fs" % (step + 1, j["steps"], time.time() - t1))
+        return kw
+    out = pipe(prompt=j["prompt"], image=(refs if {bool(ref_images)} else None),
+               negative_prompt=j.get("neg"), true_cfg_scale=4.0,
+               height=j["height"], width=j["width"],
+               num_inference_steps=j["steps"],
+               generator=torch.Generator("cuda").manual_seed(j["seed"]),
+               callback_on_step_end=_cb)
+    img = out.images[0] if hasattr(out, "images") else out[0][0]
+    img.save(j["dst"])
+    _say("SAVED %s %.0fs" % (j["dst"], time.time() - t1))
+_say("ALL_DONE %.0fs" % (time.time() - _t0))
+"""
+    first = Path(jobs[0]["dst"])
+    tmp = first.with_name(f"_bundle_{int(time.time())}.py")
+    tmp.write_text(script)
+    errfile = tmp.with_suffix(".stderr")
+    with open(errfile, "w") as ef:
+        proc = subprocess.Popen([str(VENV_PY), str(tmp)], stdout=subprocess.PIPE,
+                                stderr=ef, text=True)
+        deadline = time.time() + timeout * max(1, len(jobs))
+        try:
+            for line in proc.stdout:
+                print(f"[imagegen] {line.rstrip()}")
+                if time.time() > deadline:
+                    proc.kill()
+                    raise RuntimeError("批量图像生成超时被杀")
+        finally:
+            proc.wait()
+    tmp.unlink(missing_ok=True)
+    err = errfile.read_text() if errfile.exists() else ""
+    errfile.unlink(missing_ok=True)
+    missing = [j["dst"] for j in jobs if not Path(j["dst"]).exists()]
+    if proc.returncode != 0 or missing:
+        raise RuntimeError(f"批量生成失败 rc={proc.returncode} 未产出{missing[:2]} "
+                           f"stderr={err[-500:]}")
+    return [str(Path(j["dst"])) for j in all_jobs]
 
 
 def _vlm_pick(char, cands):
