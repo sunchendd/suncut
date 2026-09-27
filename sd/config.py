@@ -58,6 +58,12 @@ TTS_VOICES = {                                # 配音师音色池(中文)
     "女-知性温柔": "zh-CN-XiaoxiaoNeural",
 }
 NARRATOR_DEFAULT = "旁白-沉稳男声"
+VOICE_PROFILES_FILE = "voice-profiles.json"  # 项目 audio/ 下，允许逐角色覆盖默认音色
+
+# 制片曲库：只收录已核验授权、可追溯来源的音乐。曲目文件不提交到代码仓库。
+MUSIC_LIBRARY = FRAMEWORK_ROOT / "music_library"
+MUSIC_CATALOG = MUSIC_LIBRARY / "catalog.json"
+MUSIC_SELECTION_FILE = "bgm-selection.json"
 
 # infer.py 容器环境(run-solh3.sh 同款)
 INFER_ENV = (

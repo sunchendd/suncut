@@ -175,6 +175,7 @@ def project_detail(name):
                              and bool(review.get("results"))),
             "cases": cases, "deliverables": deliverables,
             "picks": _read_json(proj.path / "picks.json") or [],
+            "release_gate": _read_json(proj.path / "release-gate.json") or {},
             "gen_logs": gen_logs, "metrics_summary": metrics_summary,
             "project_dir": str(proj.path),
             "busy": (manager.active_of_project(name) or None) and

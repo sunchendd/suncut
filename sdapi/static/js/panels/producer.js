@@ -18,7 +18,7 @@ export default function render(ctx) {
     el('div', {},
       el('h2', {}, '制片交付'),
       el('p', { class: 'page-sub' },
-        `按剧本顺序选每镜历史最佳条(全≥7优先)拼接 → ${resTxt} CRF17 → deliver/ 与桌面;配音师产物自动侧链混入;可勾选烧录字幕。`)),
+        `只选“完整机器通过”或有理由的人工例外条；逐镜按可用起止范围剪辑，再输出 ${resTxt} CRF17。配音会自动混入，可勾选烧录字幕。`)),
     el('div', { class: 'row' },
       el('label', { class: 'row small', style: { gap: '4px', alignSelf: 'center' } },
         subs, '📝 自动字幕'),
@@ -37,8 +37,11 @@ export default function render(ctx) {
             el('td', {}, el('span', { class: 'chip acc' }, p.case)),
             el('td', {}, el('a', { href: '#', onclick: (e) => { e.preventDefault(); videoModal(p.case, p.picked); } },
               p.picked.split('/').slice(-4, -2).join('/'))),
-            el('td', {}, el('span', { class: `chip ${p.verdict === 'pass' ? 'ok' : 'warn'}` }, p.verdict || '-')))))))));
+            el('td', {}, el('span', { class: `chip ${['pass', 'waived'].includes(p.disposition) ? 'ok' : 'warn'}` }, p.disposition || p.verdict || '-')))))))));
   }
+
+  if (d.release_gate?.ready) box.append(el('div', { class: 'card small', style: { borderColor: 'var(--ok)' } },
+    `✓ 发布闸门已通过：${(d.release_gate.approved || []).length} 镜均有完整判定。`));
 
   // 交付物
   const vids = d.deliverables.filter(f => f.name.endsWith('.mp4'));

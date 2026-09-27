@@ -8,7 +8,7 @@
 import json
 from pathlib import Path
 
-from . import av, casting, config, director, dubbing, materials, reviewer, \
+from . import av, casting, config, creative_skills, director, dubbing, materials, musiclib, reviewer, \
     screenwriter, storyboard
 from .metrics import Metrics, stopwatch
 from .project import Project
@@ -43,7 +43,7 @@ def produce(name, auto_retake=True, force_stage=None):
         for round_i in range(1, MAX_RETAKE_ROUNDS + 1):
             state = proj.load_state()
             failing = [r for r in rv["results"]
-                       if r.get("verdict") in ("retake", "fail")
+                       if r.get("verdict") != "pass"
                        and not reviewer.has_passing_take(state, r["case"])]
             if not failing:
                 break
@@ -57,11 +57,8 @@ def produce(name, auto_retake=True, force_stage=None):
             Metrics(proj).mark("review", 0.0, {"passed": f"{rv['passed']}/{rv['total']}"})
             print(f"[复审R{round_i}] {rv['passed']}/{rv['total']} 过")
     print("[制片] 7/8 配音配乐…")
-    try:
-        with stopwatch(proj, "dub"):
-            dubbing.run(proj)
-    except Exception as e:                        # 配音失败不阻塞交付(原声直出)
-        print(f"[制片] 配音跳过: {e}")
+    with stopwatch(proj, "dub"):
+        dubbing.run(proj)
     print("[制片] 8/8 交付…")
     with stopwatch(proj, "deliver"):
         paths = deliver(proj)
@@ -138,18 +135,37 @@ def _nas_sync(files, sub, key):
     return copied
 
 
-def _edit_durations(proj, cases):
-    """剪辑表时长: storyboard 行 duration_hint=short → SHORT_TRIM,否则满镜."""
+def _edit_ranges(proj, pick_log):
+    """把剧本目标节奏与审片建议的可用区间合成最终 in/duration。"""
     sb = proj.load_stage("storyboard")
-    hints = {}
+    rows = {}
     try:
         for line in open(sb["jsonl"]):
             row = json.loads(line)
-            hints[row["case_id"]] = row.get("duration_hint", "std")
+            rows[row["case_id"]] = row
     except Exception:
         pass
-    return [config.SHORT_TRIM if hints.get(c) == "short" else config.SHOT_SECONDS
-            for c in cases]
+    script = proj.load_stage("script") or {"shots": []}
+    script_by = {f"{proj.name}-{s['id']}": s for s in script.get("shots", [])}
+    edits = []
+    for pick in pick_log:
+        case = pick["case"]
+        row, shot = rows.get(case, {}), script_by.get(case, {})
+        fallback = config.SHORT_TRIM if row.get("duration_hint", shot.get("duration_hint")) == "short" else config.SHOT_SECONDS
+        target = float(row.get("edit_duration_s", shot.get("edit_duration_s", fallback)))
+        start = float(row.get("edit_in_s", shot.get("edit_in_s", 0.15)))
+        review = pick.get("review") or {}
+        if review.get("usable_in_s") is not None:
+            start = float(review["usable_in_s"])
+        usable_out = float(review.get("usable_out_s", config.SHOT_SECONDS))
+        start = max(0.0, min(1.0, start))
+        usable_out = max(start + 1.2, min(config.SHOT_SECONDS, usable_out))
+        duration = max(1.2, min(target, usable_out - start,
+                                config.SHOT_SECONDS - start))
+        edits.append({"in": round(start, 3), "duration": round(duration, 3),
+                      "out": round(start + duration, 3),
+                      "cut_intent": row.get("cut_intent", shot.get("cut_intent", ""))})
+    return edits
 
 
 def _title_clip(proj, out_dir):
@@ -157,7 +173,8 @@ def _title_clip(proj, out_dir):
     import subprocess
     script = proj.load_stage("script") or {}
     title = script.get("title_cn", proj.name)
-    logline = script.get("logline", "")
+    logline = script.get("logline", "")[:34]
+    tagline_lines = [logline[i:i + 17] for i in range(0, len(logline), 17)][:2]
     png = out_dir / "title-card.png"
     code = (
         "from PIL import Image, ImageDraw, ImageFont\n"
@@ -175,7 +192,8 @@ def _title_clip(proj, out_dir):
         "    bb = d.textbbox((0, 0), text, font=font)\n"
         "    d.text(((W - (bb[2] - bb[0])) / 2 - bb[0], y), text, font=font, fill=fill)\n"
         f"center({title!r}, load('SC', 96), int(H * 0.40), (245, 242, 235))\n"
-        f"center({logline!r}, load('SC', 34), int(H * 0.40) + 130, (170, 170, 165))\n"
+        f"lines={tagline_lines!r}\n"
+        "for i, line in enumerate(lines): center(line, load('SC', 32), int(H * 0.40) + 128 + i*46, (184, 184, 178))\n"
         "im.save(r'%s')\nprint('TITLE_OK')" % str(png)
     )
     py = config.HOME / "venvs/imagegen/bin/python"
@@ -190,18 +208,23 @@ def deliver(proj, force=False, subs=False):
     """按剧本顺序选每镜最佳条 → 剪辑表拼接(short 快切破等距节奏) → (配音混入)
     → 片尾片名卡 → 横/竖+分辨率 → deliver/ 与桌面."""
     settings = proj.settings()
+    # BGM 属于制片最终混音，不再在每个生成镜头里反复启动随机音乐。
+    music = musiclib.materialize_selected_bgm(proj)
+    if not music:
+        raise musiclib.MusicLibraryError(
+            "交付缺少统一 BGM：请上传项目 BGM，或从 music_library 中选择已授权曲目")
     out_dir = proj.path / "deliver"
     out_dir.mkdir(exist_ok=True)
-    segs, pick_log = av.pick_best(proj)
+    segs, pick_log = av.pick_best(proj, require_approved=True)
     (proj.path / "picks.json").write_text(json.dumps(pick_log, ensure_ascii=False, indent=1))
+    gate = {"ready": True, "skills": creative_skills.inventory(), "bgm": music,
+            "approved": [{"case": p["case"], "video": p["picked"],
+                          "disposition": p["disposition"]} for p in pick_log]}
+    (proj.path / "release-gate.json").write_text(json.dumps(gate, ensure_ascii=False, indent=1))
 
-    cases = [p["case"] for p in pick_log]
-    durs = _edit_durations(proj, cases)
-    if any(d < config.SHOT_SECONDS - 0.01 for d in durs):
-        base = av.smart_concat(segs, durs, out_dir / "base.mp4")   # 剪辑表重剪
-        print(f"[制片] 剪辑表重剪: {[round(d, 1) for d in durs]}")
-    else:
-        base = av.concat(segs, proj.path / "concat.txt", out_dir / "base.mp4", reencode=True)
+    edits = _edit_ranges(proj, pick_log)
+    base = av.smart_concat(segs, edits, out_dir / "base.mp4")
+    print(f"[制片] 内容感知剪辑表: {edits}")
     vo = av.vo_of(proj)
     if vo:                                         # 配音师产物 → 侧链压制混入
         base = av.mix_vo(base, vo, out_dir / "base-dub.mp4", bgm=av.bgm_of(proj))
@@ -238,6 +261,7 @@ def deliver(proj, force=False, subs=False):
 def deliver_master(proj, force=False, subs=False):
     """母版交付: master 1080p 条拼接 → (配音混入) → 按设置横竖/分辨率 CRF14 → 桌面."""
     from . import master
+    av.pick_best(proj, require_approved=True)       # 母版也必须先过同一发布闸门
     m = master.run(proj, force=force)
     script = proj.load_stage("script")
     settings = proj.settings()

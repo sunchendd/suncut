@@ -1,4 +1,4 @@
-// reviewer.js —— ⑥ 审片 agent 面板:三维分 + 抽帧对照 + 人工否决权(质控核心)
+// reviewer.js —— ⑥ 审片 agent 面板:六维完整核验 + 抽帧对照 + 人工例外(质控核心)
 import { api, mediaUrl } from '../api.js';
 import { el, toast, scoreBars } from '../ui.js';
 import { retakeModal, videoModal } from './actions.js';
@@ -12,7 +12,7 @@ export default function render(ctx) {
     el('div', {},
       el('h2', {}, '审片'),
       el('p', { class: 'page-sub' },
-        'VLM 双次评审取均值(单次噪声±4),三维分≥7 判过;分数历史只升不降;人工保留否决权。')),
+        '每条均核验身份、动作、构图、剧情事实、运动自然度、表演；任一项不达标即不能交付。人工例外必须说明原因，并只绑定当前视频。')),
     el('div', { class: 'row' },
       d.review_stale ? el('span', { class: 'chip bad', title: '重拍/重生成后旧审片已作废,请重新审片' }, '⚠ 重拍后待复审') : null,
       rv.total ? el('span', { class: `chip ${!d.review_stale && rv.passed === rv.total ? 'ok' : 'warn'}` },
@@ -30,6 +30,10 @@ export default function render(ctx) {
   if (!cases.length) { box.append(el('div', { class: 'card empty' }, '尚无可审内容 —— 先完成导演开拍')); return box; }
 
   const humanMark = async (c, approved, note = '') => {
+    if (approved) {
+      note = window.prompt('请写明为什么这条可以例外放行（会绑定当前视频）', note);
+      if (note == null) return;
+    }
     try {
       await api.post(`/api/projects/${name}/review/human`, { case: c.case, approved, note });
       toast(approved ? `✅ 已人工通过 ${c.case}` : `⛔ 已否决 ${c.case} —— 建议立即发起重拍`, approved ? 'ok' : 'warn');
@@ -53,7 +57,7 @@ export default function render(ctx) {
             human.approved ? '人工✓' : '人工否决') : null,
           (c.takes || []).length ? el('span', { class: 'chip' }, `历史条×${(c.takes || []).length + 1}`) : null),
         el('div', { class: 'row' },
-          el('button', { class: 'btn sm done-btn', onclick: () => humanMark(c, true, '人工通过') }, '人工通过'),
+          el('button', { class: 'btn sm done-btn', onclick: () => humanMark(c, true, '') }, '人工例外放行'),
           el('button', { class: 'btn danger sm', onclick: () => humanMark(c, false, c.review?.advice_cn || '人工否决') }, '⛔ 否决并重拍'))),
       el('div', { class: 'img-row', style: { margin: '10px 0' } },
         ...c.frames.map((f, i) => el('div', {},
@@ -65,6 +69,9 @@ export default function render(ctx) {
         el('button', { class: 'btn ghost sm', onclick: () => videoModal(c.case, c.video) }, '▶ 播放视频'),
         r.tech ? el('span', { class: 'chip' }, `时长 ${r.tech.duration?.toFixed(2) || '?'}s · ${r.tech.has_audio ? '有音轨' : '⚠ 无音轨'}`) : null),
       scoreBars(r.identity != null ? r : c.gen_scores),
+      r.story_facts != null ? el('div', { class: 'small dim', style: { marginTop: '5px' } },
+        `剧情事实 ${r.story_facts}/10 · 运动自然 ${r.motion_naturalness}/10 · 表演 ${r.performance}/10`,
+        r.text_artifacts ? ' · ⚠ 画面文字异常' : '') : null,
       (r.advice_cn || r.advice) ? el('div', { class: 'small', style: { margin: '6px 0 0', color: 'var(--warn)' } },
         '重拍建议:', r.advice_cn || r.advice) : null));
       const takeRows = [];

@@ -1,24 +1,25 @@
-"""审片 agent —— 技术核验 + GLM-4.5V 抽帧视觉评审 + 审片包(人可复核).
-
-审片维度(桌面工作流 §5.1): 身份一致性 / 动作 / 构图。
-每镜抽 3 帧(0.5s/2.5s/4.5s)与角色参考图(特写+全身)同送视觉模型,
-输出 0-10 三维评分;全维 ≥7 过,否则给出重拍建议。
-"""
+"""审片 agent —— 技术、故事事实、动态自然度、表演和画面质量的完整 verdict。"""
 import json
 import subprocess
 from pathlib import Path
 
-from . import config, llm
+from . import config, creative_skills, llm, quality
 
-PROMPT_TMPL = """{refs_desc}后3张是同一镜头视频的第0.5s/2.5s/4.5s帧({orient_note})。
+PROMPT_TMPL = """{refs_desc}后7张按时间顺序覆盖同一镜头从开头到结尾({orient_note})。
+必须把它们当成连续动作判断，不能因为某一张构图漂亮就忽略前后矛盾。
 
-【该镜要求】{dd}
+【不可改写故事事实】{locked_facts}
+【该镜执行描述】{dd}
 
 评审(只输出 JSON;空镜镜 identity 固定给 10):
-{{"identity": 0-10, "action": 0-10, "composition": 0-10,
+{{"identity": 0-10, "story_facts": 0-10, "action": 0-10, "composition": 0-10,
+ "motion_naturalness": 0-10, "performance": 0-10,
  "text_artifacts": true/false(画面任何位置是否出现乱码/涂痕/无意义文字,信封道具也不例外),
- "pass": true/false(三项全部>=7 且 text_artifacts=false 才 true),
- "advice_cn": "不通过时给一句具体重拍建议(如:换运镜/减动作/强调光线/清除画面文字);通过则空串"}}"""
+ "usable_in_s": 0.0-1.0(建议裁掉不稳定开头后的入点),
+ "usable_out_s": 3.5-5.04(动作/反应完成且结尾未崩的出点),
+ "advice_cn": "不通过时同时指出事实/动态/表演中最关键的问题和可执行修法;通过则空串"}}
+
+{qa_skill}"""
 
 
 def orient_note_of(proj):
@@ -42,9 +43,10 @@ def _ffprobe(video):
 
 def _frames(video, out_dir, case):
     paths = []
-    for i, t in enumerate(("0.5", "2.5", "4.5")):
+    times = (0.35, 1.05, 1.75, 2.50, 3.25, 4.00, 4.70)
+    for i, t in enumerate(times):
         p = out_dir / f"{case}-f{i}.jpg"
-        r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", t,
+        r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{t:.2f}",
                             "-i", str(video), "-frames:v", "1", "-q:v", "3", str(p)],
                            capture_output=True, text=True)
         if r.returncode == 0 and p.exists():
@@ -56,11 +58,26 @@ def _sheet(frames, out_dir, case):
     if len(frames) < 2:
         return None
     p = out_dir / f"{case}-sheet.jpg"
-    r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
-                        "-i", frames[0], "-i", frames[1], "-i", frames[2],
-                        "-filter_complex", "[0][1][2]hstack=3,scale=1536:-2",
-                        str(p)], capture_output=True, text=True)
-    return p if r.returncode == 0 and p.exists() else None
+    try:
+        from PIL import Image, ImageDraw
+        cols, cell_w = 4, 480
+        ims = []
+        for i, f in enumerate(frames):
+            im = Image.open(f).convert("RGB")
+            h = round(im.height * cell_w / im.width)
+            ims.append((i, im.resize((cell_w, h))))
+        cell_h = max(im.height for _, im in ims) + 26
+        rows = -(-len(ims) // cols)
+        sheet = Image.new("RGB", (cols * cell_w, rows * cell_h), "black")
+        draw = ImageDraw.Draw(sheet)
+        for i, im in ims:
+            x, y = (i % cols) * cell_w, (i // cols) * cell_h
+            sheet.paste(im, (x, y + 26))
+            draw.text((x + 8, y + 5), f"t{i + 1}", fill="yellow")
+        sheet.save(p, quality=90)
+        return p
+    except Exception:
+        return None
 
 
 def review(proj, force=False):
@@ -88,41 +105,54 @@ def review(proj, force=False):
     def review_one(shot):
         case, video = current_video(shot["id"])
         if not video or not Path(video).exists():
-            return {"case": case, "tech": "缺文件", "verdict": "fail"}
+            return {"case": case, "video": video, "tech": "缺文件", "verdict": "fail"}
         tech = _ffprobe(video)
         if abs(tech["duration"] - config.SHOT_SECONDS) > 0.5 or not tech["has_audio"]:
-            return {"case": case, "tech": tech, "verdict": "fail",
+            return {"case": case, "video": video, "tech": tech, "verdict": "fail",
                     "advice": "技术指标异常(时长/音轨)"}
         frames = _frames(video, out_dir, case)
-        if len(frames) < 3:
-            return {"case": case, "tech": tech, "verdict": "fail", "advice": "抽帧失败"}
+        if len(frames) < 7:
+            return {"case": case, "video": video, "tech": tech, "verdict": "fail", "advice": "抽帧失败"}
         _sheet(frames, out_dir, case)
         dd_full = _dd_from_jsonl(sb, case) or (
             dd_by[shot["id"]]["shot_en"] + " " + dd_by.get(shot["id"], {}).get("action_en", ""))
-        in_cast = [cast_by_name[n] for n in shot.get("cast", [])][:2] or [cast_by_name[lead_name]]
+        in_cast = [cast_by_name[n] for n in shot.get("cast", [])][:2]
         ref_imgs = [p for prof in in_cast for p in (prof["refs"]["closeup"], prof["refs"]["front"])]
         refs_desc = (f"前{len(ref_imgs)}张图是角色参考图(每位角色两张:头部特写+全身正面,"
                      f"顺序对应镜中 Subject 编号)," if ref_imgs else "本镜是无人物空镜,")
         orient_note = orient_note_of(proj)
+        locked_facts = shot.get("locked_facts") or [shot.get("action_en", "")]
         text = PROMPT_TMPL.format(refs_desc=refs_desc, orient_note=orient_note,
-                                  dd=dd_full)
+                                  locked_facts=json.dumps(locked_facts, ensure_ascii=False),
+                                  dd=dd_full,
+                                  qa_skill=creative_skills.prompt_for("reviewer"))
         try:
             # 双次评审取均值(单次 VLM 打分噪声大,同视频可差 ±4)
             v1 = llm.extract_json(llm.vision(text, ref_imgs + frames))
             v2 = llm.extract_json(llm.vision(text, ref_imgs + frames))
-            for k in ("identity", "action", "composition"):
+            for k in quality.CORE_SCORES:
                 if k in v1 and k in v2:
                     v1[k] = round((v1[k] + v2[k]) / 2)
         except Exception as e:
-            return {"case": case, "tech": tech, "verdict": "error", "advice": str(e)}
+            return {"case": case, "video": video, "tech": tech,
+                    "verdict": "error", "advice": str(e)}
         v = v1
         v.update({"case": case, "tech": tech, "video": video})
-        # pass 由程序按双次均值三维分计算(VLM 自报布尔偏保守且与分数不一致);
-        # 双主体镜 identity 阈值 8(融合形变事故高发,从严);乱码文字硬拒
+        # pass 由程序统一计算；缺少任何新维度都按 0，不能由旧三维分冒充完整通过。
+        for k in quality.CORE_SCORES:
+            v[k] = v.get(k, 0)
         id_thr = 8 if len(shot.get("cast") or []) > 1 else 7
         v["identity_threshold"] = id_thr
         v["pass"] = (v["identity"] >= id_thr and v["action"] >= 7
-                     and v["composition"] >= 7 and not v.get("text_artifacts"))
+                     and v["composition"] >= 7 and v["story_facts"] >= 8
+                     and v["motion_naturalness"] >= 7 and v["performance"] >= 7
+                     and v.get("text_artifacts") is False)
+        try:
+            start = max(0.0, min(1.0, float(v.get("usable_in_s", 0.15))))
+            end = max(start + 1.2, min(config.SHOT_SECONDS, float(v.get("usable_out_s", 4.85))))
+        except (TypeError, ValueError):
+            start, end = 0.15, 4.85
+        v["usable_in_s"], v["usable_out_s"] = round(start, 2), round(end, 2)
         v["verdict"] = "pass" if v["pass"] else "retake"
         return v
 
@@ -132,20 +162,21 @@ def review(proj, force=False):
         for f in as_completed(futs):
             results[futs[f]] = f.result()
 
-    # 评分回写条历史: 只升不降(保留历史最优,防噪声把好条打崩)
+    # 完整 verdict 绑定到具体视频；review/pick/deliver 共享同一份事实。
     for r in results:
         case = r["case"]
-        dims = {k: r.get(k) for k in ("identity", "action", "composition") if k in r}
-        if not dims:
-            continue
-        if takes.get(case):
+        dims = {k: r.get(k) for k in quality.CORE_SCORES if k in r}
+        video = r.get("video")
+        if takes.get(case) and video and takes[case][-1].get("mp4") == video:
             t = takes[case][-1]
-            old = t.get("scores") or {}
             t.setdefault("scores_history", []).append(dims)
-            if (not old) or sum(dims.values()) >= sum(old.values()):
-                t["scores"] = dims
+            t.setdefault("review_history", []).append(r)
+            t["scores"] = dims
+            t["review"] = r
         else:
             state.setdefault("gen_scores", {})[case] = dims
+            state.setdefault("gen_review_history", {}).setdefault(case, []).append(r)
+            state.setdefault("gen_reviews", {})[case] = r
     proj._write_state(state)
 
     passed = sum(1 for r in results if r.get("verdict") == "pass")
@@ -191,7 +222,8 @@ def _consistency_check(proj, script):
                 "检查跨镜一致性: ①同一角色在不同镜头是否同一张脸、同一套衣服"
                 "(颜色/材质/图案逐一比);②同一场景的不同镜头是否同一处;"
                 "③色调是否连贯(刻意冷暖分段除外)。只输出 JSON: "
-                '{"consistent": true/false, "issues": ["q3:衬衫从纯色变成格子,与q1不一致", ...]}')
+                '{"consistent": true/false, "issues": ["q3:衬衫从纯色变成格子,与q1不一致", ...]}\n\n'
+                + creative_skills.prompt_for("reviewer"))
         out = None
         for _ in range(2):                       # vision 空回复偶发,重试一次
             try:
@@ -208,11 +240,10 @@ def _consistency_check(proj, script):
 
 
 def has_passing_take(state, case):
-    """该镜是否存在任何已通过的条(首轮或某次重拍)."""
-    gs = state.get("gen_scores", {}).get(case)
-    if gs and min(gs.values()) >= 7:
+    """该镜是否存在任何拥有完整通过 verdict 的条。"""
+    if quality.review_is_pass(state.get("gen_reviews", {}).get(case)):
         return True
-    return any(t.get("scores") and min(t["scores"].values()) >= 7
+    return any(quality.review_is_pass(t.get("review"))
                for t in state.get("takes", {}).get(case, []))
 
 

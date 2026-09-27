@@ -8,7 +8,7 @@ import json
 import shutil
 from pathlib import Path
 
-from . import config, llm
+from . import config, creative_skills, llm
 from . import lint
 
 SYSTEM = ("你是分镜师。把剧本每镜扩写成 ref2va 的 detailed_description(英文一段),"
@@ -20,7 +20,8 @@ SYSTEM = ("你是分镜师。把剧本每镜扩写成 ref2va 的 detailed_descri
           "**双主体镜严禁递物/接触交互(形变事故源): 一主体完成动作,另一主体静立/背对,"
           "物品放桌面或已在自己手里**;"
           "**相邻镜景别必须跳变(远全/中近/特写交替),剧本的 imagery_en 记忆点必须写进描述**;"
-          "结尾加 'cinematic still, real scene, photorealistic' 压住参考图的设定图味。只输出 JSON。")
+          "结尾加 'natural live-action motion, physically plausible inertia, real scene, photorealistic'，"
+          "禁止 cinematic still/人物长时间僵住。只输出 JSON。")
 
 
 def run(proj, force=False):
@@ -33,7 +34,11 @@ def run(proj, force=False):
                  "shot_en": s["shot_en"], "action_en": s["action_en"],
                  "duration_hint": s.get("duration_hint", "std"),
                  "imagery_en": s.get("imagery_en", ""),
-                 "emotion_cn": s.get("emotion_cn", "")} for s in script["shots"]]
+                 "emotion_cn": s.get("emotion_cn", ""),
+                 "shot_function": s.get("shot_function", ""),
+                 "cut_intent": s.get("cut_intent", ""),
+                 "performance_beat": s.get("performance_beat", ""),
+                 "locked_facts": s.get("locked_facts", [])} for s in script["shots"]]
     two_by = {s["id"]: len(s.get("cast") or []) > 1 for s in script["shots"]}
     orient_note = ("横构图、主体 central third(成片会中心裁竖版,主体必须在中三分之一)"
                    if proj.settings().get("orientation", "landscape") == "portrait"
@@ -55,7 +60,8 @@ def run(proj, force=False):
 
 只输出 JSON:
 {{"shots": [{{"id": "q1", "detailed_description": "<Subject 1> ...", "overall_soundscape": "..."}}]}}"""
-    data = llm.chat_json(config.LLM_TEXT, SYSTEM, user)
+    system = SYSTEM + "\n\n" + creative_skills.prompt_for("storyboard")
+    data = llm.chat_json(config.LLM_TEXT, system, user)
     dd_by = {s["id"]: s for s in data["shots"]}
     dd_by, lint_log = _lint_and_rewrite(shots_in, dd_by, two_by)
 
@@ -94,18 +100,28 @@ def run(proj, force=False):
         dd = lint.ensure_safety_phrases(dd)   # 程序化补 no cuts/no text
         # 本镜出场角色的参考图与 DNA 逐字拼装(单镜≤2人,超员只取前2)
         in_shot = [cast_by_name[n] for n in (s.get("cast") or [])[:2]] or ([lead] if not empty_shot else [])
+        locked_facts = [str(x) for x in (s.get("locked_facts") or [s.get("action_en", "")]) if str(x).strip()]
+        for k, name in enumerate(s.get("cast") or []):
+            locked_facts = [f.replace(name, f"<Subject {k + 1}>") for f in locked_facts]
+        locked_block = " | ".join(locked_facts)
         if empty_shot:
             row = {
                 "case_id": f"{proj.name}-{s['id']}",
                 "seed": lead["seed"],
                 "task": "t2va",
                 "references": [],
-                "prompt": (f"detailed_description: {dd} "
+                "prompt": (f"locked_story_facts: {locked_block}. "
+                           f"detailed_description: {dd} "
                            f"overall_soundscape: {dd_by[s['id']]['overall_soundscape']}. "
-                           f"non_diegetic_music: {mats['music_en']}"),
+                           "non_diegetic_music: none; final BGM is added once by the producer"),
                 "note": _shot_note(s, []),
                 "dd": dd,
                 "duration_hint": s.get("duration_hint", "std"),   # 制片剪辑表读取
+                "edit_in_s": s.get("edit_in_s", 0.15),
+                "edit_duration_s": s.get("edit_duration_s", config.SHOT_SECONDS - 0.23),
+                "cut_intent": s.get("cut_intent", ""),
+                "shot_function": s.get("shot_function", ""),
+                "locked_facts": locked_facts,
                 "soundscape": dd_by[s["id"]]["overall_soundscape"],
                 "cast": [],
             }
@@ -123,13 +139,19 @@ def run(proj, force=False):
             # 逐字拼装: DNA/穿搭/音乐块永不经过 LLM 之手
             "prompt": (
                 f"subject_definitions: {' '.join(defs)} "
+                f"locked_story_facts: {locked_block}. "
                 f"detailed_description: {dd} "
                 f"overall_soundscape: {dd_by[s['id']]['overall_soundscape']}. "
-                f"non_diegetic_music: {mats['music_en']}"
+                "non_diegetic_music: none; final BGM is added once by the producer"
             ),
             "note": _shot_note(s, in_shot),
             "dd": dd,                       # 留档供单镜重拍时外科手术式改写
             "duration_hint": s.get("duration_hint", "std"),
+            "edit_in_s": s.get("edit_in_s", 0.15),
+            "edit_duration_s": s.get("edit_duration_s", config.SHOT_SECONDS - 0.23),
+            "cut_intent": s.get("cut_intent", ""),
+            "shot_function": s.get("shot_function", ""),
+            "locked_facts": locked_facts,
             "soundscape": dd_by[s["id"]]["overall_soundscape"],
             "cast": [p["name"] for p in in_shot],
         }

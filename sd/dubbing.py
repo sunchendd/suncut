@@ -1,4 +1,4 @@
-"""配音师 agent —— 台词/旁白配音(edge-tts)+ 音色分配 + 全片 VO 音轨 + 预览混音.
+"""配音师 agent —— 角色音色档案 + 后期 ADR + 全片 VO 音轨 + 预览混音.
 
 设计(与重拍解耦): 配音只产出「全片一条 VO 音轨 + 时间表」:
   audio/vo/segNNN-<音色>.mp3   逐段配音(按剧本时间轴绝对定位)
@@ -6,17 +6,20 @@
   audio/preview.mp4            当前最佳条 × 侧链压制混音预览(审听位)
   dubbing.json                 音色分配 + 分段时间表
 真正的成片合成在制片交付时按「当时选出的条」进行 —— 重拍换条不失效
-(每镜恒 5.04s,时间轴不变)。用户把 bgm.mp3 放进 audio/ 即可全片替换配乐。
+(时间轴使用编剧的连续剪辑时长)。BGM 由制片在最终混音时统一铺设，
+配音阶段只引用已选曲目作审听预览。
 """
 import json
 import shutil
 import subprocess
 from pathlib import Path
 
-from . import av, config, llm
+from . import av, config, creative_skills, llm, musiclib
 
 VOICE_SYSTEM = ("你是配音导演。根据角色外观气质,从音色池里为每个角色选最贴合的一条,"
-                "再为旁白选一条。只输出 JSON。")
+                "再为旁白选一条。只输出 JSON。\n\n"
+                + creative_skills.prompt_for("dubbing"))
+MAX_RATE_BOOST = 12
 
 
 def _edge_tts_bin():
@@ -53,17 +56,30 @@ def _segments(proj_name, script, narrator_voice, voices):
         if (shot.get("narration_cn") or "").strip():
             events.append((shot["narration_cn"].strip(), narrator_voice, "旁白"))
         m = len(events)
+        lead = max(0.12, min(0.6, float(shot.get("voice_lead_s", 0.25))))
+        tail = max(0.12, min(0.5, float(shot.get("voice_tail_s", 0.20))))
         for j, (text, voice, who) in enumerate(events):
-            slot = (S - 0.6) / m
+            slot = (S - lead - tail) / m
             segs.append({"case": f"{proj_name}-{shot['id']}", "shot": shot["id"],
                          "who": who, "text": text, "voice": voice,
-                         "t_start": round(t0 + 0.3 + j * slot, 3),
-                         "t_end": round(t0 + 0.3 + (j + 1) * slot - 0.12, 3)})
+                         "t_start": round(t0 + lead + j * slot, 3),
+                         "t_end": round(t0 + lead + (j + 1) * slot - 0.10, 3)})
     return segs
 
 
-def _assign_voices(cast, narrator_default):
-    """LLM 按角色气质选音色;失败回退 narrator 默认池."""
+def _voice_overrides(proj):
+    """允许项目逐角色覆写；自定义/克隆音色必须带书面授权引用。"""
+    path = proj.path / "audio" / config.VOICE_PROFILES_FILE
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        data = {}
+    return data if isinstance(data, dict) else {}
+
+
+def _assign_voices(proj, cast, narrator_default):
+    """LLM 初选、项目覆盖、同剧角色去重，形成可审计的声音档案。"""
+    overrides = _voice_overrides(proj)
     pool = "\n".join(f"- {k}" for k in config.TTS_VOICES)
     roles = "\n".join(f"- {r['story_role']}: {r['profile']['face_dna'][:100]}"
                       for r in cast["cast"])
@@ -76,25 +92,59 @@ def _assign_voices(cast, narrator_default):
         narr = d.get("narrator") if d.get("narrator") in config.TTS_VOICES else narrator_default
     except Exception:
         voices, narr = {}, narrator_default
-    for r in cast["cast"]:                        # 兜底: 没分到的用旁白音色
-        voices.setdefault(r["story_role"], narr)
-    return voices, narr
+    used = set()
+    available = list(config.TTS_VOICES)
+    profiles = {}
+    for r in cast["cast"]:
+        role = r["story_role"]
+        override = (overrides.get("roles") or {}).get(role, {})
+        voice = override.get("voice") if isinstance(override, dict) else None
+        if voice not in config.TTS_VOICES:
+            voice = voices.get(role)
+        if voice in used:                           # 同剧角色默认不共用声线
+            voice = next((v for v in available if v not in used and v != narr), voice)
+        voice = voice if voice in config.TTS_VOICES else next(
+            (v for v in available if v not in used), narr)
+        source = override.get("source", "provider_generic_tts") if isinstance(override, dict) else "provider_generic_tts"
+        consent = override.get("consent_reference", "") if isinstance(override, dict) else ""
+        if source in ("custom_voice", "voice_clone") and not consent.strip():
+            raise RuntimeError(f"{role} 使用自定义/克隆音色必须提供 consent_reference")
+        voices[role] = voice
+        used.add(voice)
+        profiles[role] = {"voice": voice, "voice_id": config.TTS_VOICES[voice],
+                          "source": source, "consent_reference": consent,
+                          "performance": (override.get("performance", "") if isinstance(override, dict) else "")}
+        r["voice_profile"] = profiles[role]
+    narrator_override = overrides.get("narrator") or {}
+    narrator = narrator_override.get("voice", narr) if isinstance(narrator_override, dict) else narr
+    if narrator not in config.TTS_VOICES:
+        narrator = narr
+    narrator_profile = {"voice": narrator, "voice_id": config.TTS_VOICES[narrator],
+                        "source": (narrator_override.get("source", "provider_generic_tts") if isinstance(narrator_override, dict) else "provider_generic_tts"),
+                        "consent_reference": (narrator_override.get("consent_reference", "") if isinstance(narrator_override, dict) else "")}
+    if narrator_profile["source"] in ("custom_voice", "voice_clone") and not narrator_profile["consent_reference"].strip():
+        raise RuntimeError("旁白使用自定义/克隆音色必须提供 consent_reference")
+    return voices, narrator, {"roles": profiles, "narrator": narrator_profile}
 
 
 def _build_vo_track(proj, segs, vo_dir, total_s):
-    """逐段 TTS(超时窗自动加速)→ 拼成全片一条 vo_full.wav."""
-    S = config.SHOT_SECONDS
+    """逐段 TTS；只允许轻微提速，放不下就阻断并要求改词/改剪辑。"""
     for k, seg in enumerate(segs, 1):
         seg["file"] = str(vo_dir / f"seg{k:03d}.mp3")
         window = seg["t_end"] - seg["t_start"]
         _tts(seg["text"], config.TTS_VOICES[seg["voice"]], Path(seg["file"]))
         dur = av.probe_duration(seg["file"])
         rate_boost = 0
-        if dur > window + 0.15:                   # 装不下 → 提速重合成(≤+50%)
-            rate = min(50, int((dur / max(window, 0.5) - 1) * 100) + 10)
+        if dur > window + 0.15:
+            rate = min(MAX_RATE_BOOST, max(1, int((dur / max(window, 0.5) - 1) * 100) + 3))
             _tts(seg["text"], config.TTS_VOICES[seg["voice"]], Path(seg["file"]), rate)
             dur = av.probe_duration(seg["file"])
             rate_boost = rate
+        if dur > window + 0.20:
+            raise RuntimeError(
+                f"自然语速放不进时槽: {seg['case']} {seg['who']}『{seg['text']}』"
+                f" 需 {dur:.2f}s / 可用 {window:.2f}s；请缩短台词或延长 edit_duration_s，"
+                f"系统拒绝超过 +{MAX_RATE_BOOST}% 的机械加速")
         seg["dur"] = round(dur, 3)
         seg["rate_boost"] = rate_boost
         print(f"[配音] seg{k:03d} {seg['who']}({seg['voice']}) {seg['dur']}s "
@@ -131,10 +181,15 @@ def run(proj, force=False):
     for f in vo_dir.glob("seg*.mp3"):             # force 重配: 清旧段
         f.unlink()
 
-    voices, narrator = _assign_voices(cast, config.NARRATOR_DEFAULT)
+    voices, narrator, voice_profiles = _assign_voices(proj, cast, config.NARRATOR_DEFAULT)
+    # 选角档案与本项目可编辑的声音档案保持一致，重拍不会丢角色声音。
+    proj.save_stage("cast", cast, meta={"cast": [r["char"] for r in cast["cast"]]})
+    profile_path = audio_dir / config.VOICE_PROFILES_FILE
+    if not profile_path.exists():
+        profile_path.write_text(json.dumps(voice_profiles, ensure_ascii=False, indent=1))
     print(f"[配音] 音色分配: 角色 {voices} | 旁白 {narrator}")
     segs = _segments(proj.name, script, narrator, voices)
-    data = {"voices": voices, "narrator": narrator,
+    data = {"voices": voices, "narrator": narrator, "voice_profiles": voice_profiles,
             "voice_ids": {k: config.TTS_VOICES[k] for k in
                           set(list(voices.values()) + [narrator])}}
     if not segs:
@@ -147,15 +202,16 @@ def run(proj, force=False):
     vo_full = _build_vo_track(proj, segs, vo_dir, total_s)
     data["segments"] = segs
     data["vo_full"] = vo_full
-    data["bgm_override"] = av.bgm_of(proj)
+    data["bgm_preview"] = musiclib.selected_track(proj)
 
     # 预览混音: 当前最佳条拼一下 → 侧链压制混 VO(审听位,交付时会重新按选条做)
     try:
-        seg_files, _ = av.pick_best(proj)
-        concat_list = audio_dir / "preview-concat.txt"
+        seg_files, pick_log = av.pick_best(proj, require_approved=False)
         base = audio_dir / "preview-base.mp4"
-        av.concat(seg_files, concat_list, base, reencode=False)
-        av.mix_vo(base, vo_full, audio_dir / "preview.mp4", bgm=av.bgm_of(proj))
+        from .producer import _edit_ranges
+        av.smart_concat(seg_files, _edit_ranges(proj, pick_log), base)
+        bgm = (data["bgm_preview"] or {}).get("file")
+        av.mix_vo(base, vo_full, audio_dir / "preview.mp4", bgm=bgm)
         base.unlink(missing_ok=True)
         data["preview"] = str(audio_dir / "preview.mp4")
         print(f"[配音] 预览混音完成: {data['preview']}")

@@ -1,7 +1,7 @@
 """招聘 agent —— 从演员库(AI角色工坊)为故事选角,坚持"角色最少够用"原则."""
 import json
 
-from . import config, llm, pool, qwenimage
+from . import config, creative_skills, llm, pool, qwenimage
 
 SYSTEM = ("你是短剧选角导演。铁律:角色越少越好——60秒内单主角最佳,最多加一位对手;"
           "群演一律不招(用空镜/画外音代替);单镜头最多 2 人同框。只输出 JSON。")
@@ -28,7 +28,8 @@ def run(proj, force=False):
 只输出 JSON:
 {{"cast": [{{"story_role": "主角", "char": "角色B_浅粉少女", "reason": "一句话", "wardrobe_note": "默认穿搭"}}],
  "extras_plan": "不需要群演的原因/空镜替代方案"}}"""
-    data = llm.chat_json(config.LLM_TEXT, SYSTEM, user)
+    data = llm.chat_json(config.LLM_TEXT,
+                         SYSTEM + "\n\n" + creative_skills.prompt_for("casting"), user)
     return _finalize(proj, data, chars)
 
 

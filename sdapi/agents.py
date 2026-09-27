@@ -173,7 +173,7 @@ def op_pipeline(job, name=None, mode="stepwise", **_):
     failing, overridden = [], []
     for r in rv.get("results", []):
         h = human.get(r["case"]) or {}
-        if r.get("verdict") in ("retake", "fail"):
+        if r.get("verdict") != "pass":
             if h.get("approved"):
                 overridden.append(r["case"])      # VLM 未过但人工翻案
                 continue
@@ -186,7 +186,7 @@ def op_pipeline(job, name=None, mode="stepwise", **_):
     job.await_gate("review_done",
                    f"审片 {rv['passed']}/{rv['total']} 过"
                    + (f",人工翻案 {len(overridden)} 镜" if overridden else "")
-                   + " —— 可重拍失败镜或直接放行交付",
+                   + " —— 未通过镜必须重拍或逐镜写明理由后人工通过，发布闸门不接受阶段级直接放行",
                    meta={"failing": failing, "passed": rv["passed"], "total": rv["total"],
                          "overridden": overridden})
 

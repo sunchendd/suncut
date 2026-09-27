@@ -9,11 +9,10 @@
 import subprocess
 from pathlib import Path
 
-from . import config
-from pathlib import Path
+from . import config, quality
 
-SUB_STYLE = ("FontName=Noto Sans CJK SC,FontSize=13,PrimaryColour=&H00FFFFFF,"
-             "OutlineColour=&H80000000,BorderStyle=1,Outline=1,Shadow=0,MarginV=28")
+SUB_STYLE = ("FontName=Noto Sans CJK SC,FontSize=22,PrimaryColour=&H00FFFFFF,"
+             "OutlineColour=&H90000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=48")
 
 
 def run(cmd, timeout=1800, cwd=None):
@@ -38,36 +37,49 @@ def probe_size(path):
 
 
 # ---------------------------------------------------------------- 选片
-def pick_best(proj):
-    """每镜历史最佳条: 有分且全 ≥7 最优,其次总分,无分垫底(与交付纪律一致)."""
+def pick_best(proj, require_approved=True):
+    """每镜选完整通过/人工例外的最佳条；默认无批准候选即阻断。"""
     script = proj.load_stage("script")
     state = proj.load_state()
     gen = proj.load_stage("generate") or {"videos": {}}
     takes = state.get("takes", {})
     rv = proj.load_stage("review") or {"results": []}
-    verdict = {r["case"]: r.get("verdict") for r in rv["results"]}
+    current_reviews = {r["case"]: r for r in rv["results"]}
+    humans = quality.human_reviews(proj)
 
     segs, pick_log = [], []
     for shot in script["shots"]:
         case = f"{proj.name}-{shot['id']}"
-        gen_scores = state.get("gen_scores", {}).get(case, {})
-        candidates = [{"mp4": t["mp4"], "scores": t.get("scores", {})}
-                      for t in takes.get(case, [])]
+        candidates = [{"mp4": t["mp4"], "review": t.get("review"),
+                       "scores": t.get("scores", {})} for t in takes.get(case, [])]
         if gen["videos"].get(case):
-            candidates.append({"mp4": gen["videos"][case], "scores": gen_scores})
+            candidates.append({"mp4": gen["videos"][case],
+                               "review": state.get("gen_reviews", {}).get(case),
+                               "scores": state.get("gen_scores", {}).get(case, {})})
         candidates = [c for c in candidates if Path(c["mp4"]).exists()]
         if not candidates:
             raise RuntimeError(f"{case} 没有任何可用条")
 
+        for c in candidates:
+            current = current_reviews.get(case)
+            if current and current.get("video") == c["mp4"]:
+                c["review"] = current
+            c["disposition"] = quality.candidate_disposition(
+                c.get("review"), humans.get(case), c["mp4"])
+
         def rank(c):
-            s = c.get("scores") or {}
-            ok = 1 if (s and min(s.values()) >= 7) else 0
-            return (ok, sum(s.values()) if s else -1)
+            approved = 1 if c["disposition"] in ("pass", "waived") else 0
+            return (approved, quality.score_total(c.get("review")))
 
         best = max(candidates, key=rank)
         segs.append(best["mp4"])
-        pick_log.append({"case": case, "picked": best["mp4"], "verdict": verdict.get(case),
+        pick_log.append({"case": case, "picked": best["mp4"],
+                         "disposition": best["disposition"],
+                         "review": best.get("review"),
+                         "human": humans.get(case),
                          "picked_scores": best.get("scores")})
+    if require_approved:
+        quality.assert_release_ready(pick_log, rv.get("consistency"))
     return segs, pick_log
 
 
@@ -190,19 +202,29 @@ def concat(segs, outlist, out, reencode=True):
 
 
 # ---------------- D 轮框架升级: 剪辑表重剪 / 片名卡 ----------------
-def smart_concat(segs, durs, out):
-    """剪辑表拼接: 每镜按 duration_hint 裁头保留(durs[i]<源时长则 trim),单次重编码.
+def smart_concat(segs, edits, out):
+    """剪辑表拼接: 每镜使用内容感知 in/duration，并在音频边界做短淡化.
 
-    打破"生成一条拼一条"的等距切点(评审: 6 切点精确等距 5.04s 的幻灯片感)。
+    edits: [{"in": 秒, "duration": 秒}]；兼容旧调用传纯时长。
     """
     n = len(segs)
+    if not n or len(edits) != n:
+        raise ValueError("smart_concat 需要一一对应的非空镜头与剪辑范围")
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]
     for s in segs:
         cmd += ["-i", str(s)]
     fc = []
-    for i, d in enumerate(durs):
-        fc.append(f"[{i}:v]trim=duration={d:.3f},setpts=PTS-STARTPTS[v{i}]")
-        fc.append(f"[{i}:a]atrim=duration={d:.3f},asetpts=PTS-STARTPTS[a{i}]")
+    for i, edit in enumerate(edits):
+        if isinstance(edit, (int, float)):
+            start, dur = 0.0, float(edit)
+        else:
+            start, dur = float(edit.get("in", 0.0)), float(edit["duration"])
+        if start < 0 or dur <= 0:
+            raise ValueError(f"第 {i + 1} 镜剪辑范围非法: in={start}, duration={dur}")
+        fade_out = max(0.0, dur - 0.08)
+        fc.append(f"[{i}:v]trim=start={start:.3f}:duration={dur:.3f},setpts=PTS-STARTPTS[v{i}]")
+        fc.append(f"[{i}:a]atrim=start={start:.3f}:duration={dur:.3f},asetpts=PTS-STARTPTS,"
+                  f"afade=t=in:st=0:d=0.04,afade=t=out:st={fade_out:.3f}:d=0.08[a{i}]")
     fc.append("".join(f"[v{i}][a{i}]" for i in range(n)) +
               f"concat=n={n}:v=1:a=1[vout][araw];"
               f"[araw]alimiter=limit=0.8413:level=false[aout]")   # -1.5dBTP
@@ -213,7 +235,7 @@ def smart_concat(segs, durs, out):
     return str(out)
 
 
-def make_title_clip(png, out, dur=1.7, w=1344, h=768):
+def make_title_clip(png, out, dur=1.4, w=1344, h=768):
     """片尾片名卡: PNG(loop) + 静音轨 → 可与正片 concat 的 mp4."""
     run(["ffmpeg", "-y", "-loglevel", "error",
          "-loop", "1", "-t", f"{dur:.3f}", "-i", str(png),

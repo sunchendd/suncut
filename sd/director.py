@@ -8,7 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from . import config, llm
+from . import config, creative_skills, llm
 from .lint import lint_dd, violations_feedback
 
 MP4_REL = "stage2/refined_1344x768_121f.mp4"
@@ -33,7 +33,9 @@ def _existing_outputs(proj, case_ids):
 REWRITE_SYSTEM = ("你是导演执行重拍修订。只改 detailed_description 以落实审片建议,"
                   "保持: <Subject 1> 开头、单一连续运镜、**1 主爆发+最多1次要+收势(≤3节点,"
                   "审片动作分低通常是动作太密)**、无手部特写、正脸不说话、"
-                  "场景与原意不变、英文一段。只输出 JSON。")
+                  "场景与原意不变、locked_story_facts 一条也不得改变、英文一段。"
+                  "加入有目的的呼吸/视线/重心微反应，禁止 cinematic still 和匀速僵立。只输出 JSON。"
+                  "\n\n" + creative_skills.prompt_for("director"))
 
 
 def _run_infer(rows, outdir, log_path, timeout=7200, first_frame=None):

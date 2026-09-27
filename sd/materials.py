@@ -5,7 +5,7 @@
 """
 import json
 
-from . import assetlib, config, llm
+from . import assetlib, config, creative_skills, llm
 
 SYSTEM = ("你是短剧美术指导。产出的是『逐字块』: 下游分镜会原样粘贴、绝不改写,"
           "所以每块必须自成一体、封闭、具体(可枚举的物件优先于抽象形容词)。只输出 JSON。")
@@ -62,8 +62,9 @@ def run(proj, force=False):
               "light_cn": "冷白荧光灯+门口暖霓虹", "props": ["透明雨伞-a transparent umbrella, ..."]}}],
  "b_roll": [{{"id": "B1", "dna_en": "empty rain-soaked street at night, one warm streetlamp ..."}}],
  "music_en": "lo-fi city pop beat at {config.DEFAULT_BPM} BPM, soft kick drum on every beat, ...",
- "style_note_en": "photorealistic cinematic still, real scene"}}"""
-    gen = llm.chat_json(config.LLM_TEXT, SYSTEM, user)
+ "style_note_en": "photorealistic live-action motion, natural inertia, real scene"}}"""
+    gen = llm.chat_json(config.LLM_TEXT,
+                        SYSTEM + "\n\n" + creative_skills.prompt_for("materials"), user)
 
     # ── 合成: 锁定场景在前(逐字),新造场景在后;统一编号 S1..Sn ──
     scenes = []
@@ -86,7 +87,7 @@ def run(proj, force=False):
     data = {"scenes": scenes,
             "b_roll": gen.get("b_roll", [])[:2],
             "music_en": gen["music_en"],
-            "style_note_en": gen.get("style_note_en", "photorealistic cinematic still, real scene"),
+            "style_note_en": gen.get("style_note_en", "photorealistic live-action motion, natural inertia, real scene"),
             "locked_from_lib": [s["name_cn"] for s in lib_scenes],
             "must_props": [p["name_cn"] for p in lib_props]}
     dna = " ".join(s["dna_en"] for s in scenes).lower()

@@ -471,7 +471,13 @@ def api_human_review(name: str, b: HumanBody):
     proj = Project(name)
     if not proj.exists():
         raise HTTPException(404, "项目不存在")
+    if b.approved and not b.note.strip():
+        raise HTTPException(422, "人工通过必须写明判断理由")
     import time as _t
+    rv = proj.load_stage("review") or {}
+    reviewed = next((r for r in rv.get("results", []) if r.get("case") == b.case), None)
+    if not reviewed or not reviewed.get("video"):
+        raise HTTPException(409, "该镜没有绑定具体视频的有效审片结果，请先重新审片")
     f = proj.path / "review" / "human.json"
     data = {}
     if f.exists():
@@ -479,7 +485,9 @@ def api_human_review(name: str, b: HumanBody):
             data = json.loads(f.read_text())
         except Exception:
             data = {}
-    data[b.case] = {"approved": b.approved, "note": b.note,
+    data[b.case] = {"approved": b.approved, "note": b.note.strip(),
+                    "video": reviewed["video"],
+                    "machine_verdict": reviewed.get("verdict"),
                     "at": _t.strftime("%F %T")}
     f.parent.mkdir(exist_ok=True)
     f.write_text(json.dumps(data, ensure_ascii=False, indent=1))
