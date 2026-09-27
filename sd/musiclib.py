@@ -30,7 +30,8 @@ def track_path(track):
 def is_ready(track):
     """曲目需完整落盘；登记摘要的曲目还要防止截断或被替换。"""
     path = track_path(track)
-    if not path.is_file() or path.stat().st_size < 1024:
+    minimum_bytes = max(1024, int(track.get("minimum_bytes", 0)))
+    if not path.is_file() or path.stat().st_size < minimum_bytes:
         return False
     expected = track.get("sha256")
     if not expected:
