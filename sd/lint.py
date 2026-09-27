@@ -97,6 +97,22 @@ def lint_generation_feasibility(shots):
     return issues
 
 
+def apply_generation_fallback(shot):
+    """对可安全降级的视觉风险做确定性替换，并返回说明；其余风险仍拒绝开拍。"""
+    action = shot.get("action_en", "")
+    if not _TEXT_SCREEN_PROP.search(action):
+        return None
+    subject = (shot.get("cast") or ["the young man"])[0]
+    shot["action_en"] = (
+        f"{subject} pauses beside the worn wooden table as an offscreen telephone rings; "
+        "he turns his head toward the doorway and holds still, jaw set.")
+    shot["locked_facts"] = [
+        f"{subject} is still beside the wooden table, head turned toward the doorway as an offscreen telephone rings"
+    ]
+    shot["performance_beat"] = "听见画外铃声后停住，克制地转头，不展示任何屏幕"
+    return "可读纸张/手机屏幕改为画外声音与人物反应，避免乱码"
+
+
 def action_beats(dd):
     """估算动作节点数(过渡标记计数,含最低 1)."""
     return max(1, len(_BEAT_MARKERS.findall(dd)))

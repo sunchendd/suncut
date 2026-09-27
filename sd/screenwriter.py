@@ -277,9 +277,16 @@ def run(proj, force=False):
         s.setdefault("performance_beat", "一个主动作后出现可见微反应")
         facts = [str(x).strip() for x in (s.get("locked_facts") or []) if str(x).strip()]
         s["locked_facts"] = facts or [s["action_en"].strip()]
+    fallbacks = []
+    for s in shots:
+        note = lint.apply_generation_fallback(s)
+        if note:
+            fallbacks.append({"shot": s["id"], "reason": note})
     feasibility = lint.lint_generation_feasibility(shots)
     if feasibility:
         raise ValueError("剧本未通过生成可行性门，拒绝进入耗时生成:\n- " + "\n- ".join(feasibility))
+    if fallbacks:
+        data["generation_fallbacks"] = fallbacks
     data["shot_ids"] = [s["id"] for s in shots]
     _write_srt(proj, data)
     proj.save_stage("script", data, meta={"shots": n, "title": data.get("title_cn", "")})

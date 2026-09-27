@@ -23,3 +23,10 @@ class GenerationFeasibilityTests(unittest.TestCase):
         issues = lint.lint_generation_feasibility(shots)
         self.assertTrue(any("手机屏幕" in issue for issue in issues))
         self.assertTrue(any("可见动作" in issue for issue in issues))
+
+    def test_phone_fallback_removes_screen_and_preserves_reaction(self):
+        shot = {"id": "q4", "cast": ["A"], "action_en": "A drops a phone.",
+                "locked_facts": ["phone is visible"]}
+        self.assertIn("画外声音", lint.apply_generation_fallback(shot))
+        self.assertEqual(lint.lint_generation_feasibility([shot]), [])
+        self.assertIn("offscreen telephone", shot["action_en"])
