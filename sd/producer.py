@@ -40,6 +40,7 @@ def produce(name, auto_retake=True, force_stage=None):
     Metrics(proj).mark("review", 0.0, {"passed": f"{rv['passed']}/{rv['total']}"})
     print(f"[审片] {rv['passed']}/{rv['total']} 过")
     if auto_retake:
+        retake_errors = []
         for round_i in range(1, MAX_RETAKE_ROUNDS + 1):
             state = proj.load_state()
             failing = [r for r in rv["results"]
@@ -50,12 +51,25 @@ def produce(name, auto_retake=True, force_stage=None):
             for r in failing:
                 print(f"[制片] 重拍R{round_i} {r['case']}: "
                       f"{r.get('advice_cn') or r.get('advice', '')}")
-                with stopwatch(proj, "retake"):
-                    director.retake(proj, r["case"], advice=r.get("advice_cn", ""))
+                try:
+                    with stopwatch(proj, "retake"):
+                        director.retake(proj, r["case"], advice=r.get("advice_cn", ""))
+                except Exception as e:
+                    # 单镜基础设施失败不能吞掉其它重拍；下一轮会继续尝试该镜。
+                    retake_errors.append({"round": round_i, "case": r["case"], "error": str(e)})
+                    print(f"[制片] 重拍暂失败，继续其它镜: {r['case']}: {e}")
             with stopwatch(proj, "review"):
                 rv = reviewer.review(proj, force=True)
             Metrics(proj).mark("review", 0.0, {"passed": f"{rv['passed']}/{rv['total']}"})
             print(f"[复审R{round_i}] {rv['passed']}/{rv['total']} 过")
+        if retake_errors:
+            (proj.path / "retake-errors.json").write_text(
+                json.dumps(retake_errors, ensure_ascii=False, indent=1))
+        remaining = [r["case"] for r in rv["results"]
+                     if r.get("verdict") != "pass"
+                     and not reviewer.has_passing_take(proj.load_state(), r["case"])]
+        if remaining:
+            raise RuntimeError("审片未达到交付门槛，已保留可恢复的重拍记录: " + ", ".join(remaining))
     print("[制片] 7/8 配音配乐…")
     with stopwatch(proj, "dub"):
         dubbing.run(proj)

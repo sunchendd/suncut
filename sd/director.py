@@ -56,9 +56,13 @@ def _run_infer(rows, outdir, log_path, timeout=7200, first_frame=None):
              f"--prompts {jf} --output-dir {batch_dir}{ff}")
     cmd = f"export {config.INFER_ENV}; sg docker -c '{inner}'"
     with open(log_path, "w") as log:
-        r = subprocess.run(["bash", "-c", cmd], stdout=log,
-                           stderr=subprocess.STDOUT, timeout=timeout)
-    return r.returncode, batch_dir
+        try:
+            r = subprocess.run(["bash", "-c", cmd], stdout=log,
+                               stderr=subprocess.STDOUT, timeout=timeout)
+            return r.returncode, batch_dir
+        except subprocess.TimeoutExpired:
+            log.write(f"\n[shortdrama] infer process timeout after {timeout}s\n")
+            return 124, batch_dir
 
 
 def _collect(batch_dir, rows):
@@ -195,15 +199,21 @@ def retake(proj, case_id, advice="", force=False):
         row["note"] = f"{row['note']} | 重拍v2({advice[:40]})"
 
     attempt = f"r{len(takes) + 1}"
-    outdir = config.SD_RUNTIME / proj.name / f"gen-{case_id.split('-')[-1]}-{attempt}"
-    log = outdir.with_suffix(".log")
-    print(f"[导演] 重拍 {case_id} seed={new_seed}"
-          f"{'+修订dd' if advice else '(仅换seed)'},日志 {log}")
-    code, batch_dir = _run_infer([row], outdir, log)
-    videos = _collect(batch_dir, [row])
-    mp4 = videos[case_id]
+    root = config.SD_RUNTIME / proj.name / f"gen-{case_id.split('-')[-1]}-{attempt}"
+    mp4, code, log = None, None, None
+    # Spark worker 偶发 warmup 无响应时不应让整季停在一镜；每次使用独立目录，
+    # 保留日志与半成品供诊断。提示/seed 不变，避免把基础设施故障伪装成创作迭代。
+    for worker_try in range(1, 4):
+        outdir = root if worker_try == 1 else root.parent / f"{root.name}-worker{worker_try}"
+        log = outdir.with_suffix(".log")
+        print(f"[导演] 重拍 {case_id} seed={new_seed}"
+              f"{'+修订dd' if advice else '(仅换seed)'} worker尝试{worker_try}/3,日志 {log}")
+        code, batch_dir = _run_infer([row], outdir, log)
+        mp4 = _collect(batch_dir, [row])[case_id]
+        if mp4:
+            break
     if not mp4:
-        raise RuntimeError(f"重拍失败(退出码{code},日志 {log})")
+        raise RuntimeError(f"重拍三次均未产出(末次退出码{code},日志 {log})")
     takes.append({"seed": new_seed, "mp4": mp4, "advice": advice})
     state.setdefault("takes", {})[case_id] = takes
     state["stages"].pop("review", None)   # 视频变了,旧审片作废
