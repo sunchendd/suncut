@@ -78,6 +78,11 @@ def project_detail(name):
     generate = proj.load_stage("generate") or {}
     review = proj.load_stage("review") or {}
     human = _read_json(proj.path / "review" / "human.json") or {}
+    try:
+        from sd import musiclib
+        bgm = musiclib.selected_track(proj)
+    except Exception:
+        bgm = None
 
     rows = {}
     if sb.get("jsonl") and Path(sb["jsonl"]).exists():
@@ -171,6 +176,7 @@ def project_detail(name):
             "script": script, "storyboard": sb, "generate": generate,
             "dub": proj.load_stage("dub") or {},
             "review": review, "human": human,
+            "bgm": bgm,
             "review_stale": ("review" not in (state.get("stages") or {})
                              and bool(review.get("results"))),
             "cases": cases, "deliverables": deliverables,

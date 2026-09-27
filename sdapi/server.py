@@ -606,6 +606,31 @@ def api_settings(name: str, b: SettingsBody):
     return {"ok": True, "settings": s, "warning": warn}
 
 
+@app.get("/api/music-library")
+def api_music_library():
+    from sd import musiclib
+    return {"tracks": musiclib.catalog()}
+
+
+class MusicSelectionBody(BaseModel):
+    track_id: str
+
+
+@app.post("/api/projects/{name}/bgm/library")
+def api_select_library_bgm(name: str, b: MusicSelectionBody):
+    from sd import musiclib
+    proj = Project(name)
+    if not proj.exists():
+        raise HTTPException(404, "项目不存在")
+    try:
+        picked = musiclib.write_selection(proj, b.track_id)
+        picked = musiclib.materialize_selected_bgm(proj)
+    except musiclib.MusicLibraryError as e:
+        raise HTTPException(422, str(e)) from e
+    bus.publish("project", name=name)
+    return {"ok": True, "bgm": picked}
+
+
 @app.post("/api/projects/{name}/bgm")
 async def api_upload_bgm(name: str, request: Request):
     """上传全片 BGM 替换文件(audio/bgm.*;配音/交付时循环铺底并侧链让路人声)."""
@@ -635,6 +660,9 @@ async def api_upload_bgm(name: str, request: Request):
     audio_dir.mkdir(parents=True, exist_ok=True)
     for old in audio_dir.glob("bgm.*"):    # 替换式: 只保留一份
         old.unlink()
+    # 上传素材覆盖曲库选择，避免交付时误用旧的授权台账。
+    from sd import musiclib
+    musiclib.selection_path(proj).unlink(missing_ok=True)
     f = audio_dir / f"bgm{ext}"
     f.write_bytes(body)
     import subprocess as _sp
@@ -661,6 +689,10 @@ def api_delete_bgm(name: str):
         for old in audio_dir.glob("bgm.*"):
             old.unlink()
             removed = True
+    from sd import musiclib
+    if musiclib.selection_path(proj).exists():
+        musiclib.selection_path(proj).unlink()
+        removed = True
     bus.publish("project", name=name)
     return {"ok": True, "removed": removed}
 

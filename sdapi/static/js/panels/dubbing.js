@@ -1,4 +1,4 @@
-// dubbing.js —— ⑦ 配音师 agent 面板:音色分配 / VO 时间表 / 预览试听 / BGM 替换
+// dubbing.js —— ⑦ 配音师 agent 面板:角色音色档案 / ADR / 制片 BGM
 import { api, mediaUrl, fmtDur } from '../api.js';
 import { el, toast, modal } from '../ui.js';
 
@@ -12,19 +12,20 @@ export default function render(ctx) {
     el('div', {},
       el('h2', {}, '配音配乐'),
       el('p', { class: 'page-sub' },
-        '台词/旁白 → edge-tts 分角色配音(按角色气质自动选音色)→ 全片 VO 音轨;交付时侧链压制混入(人声处音乐自动让路)。把 bgm.mp3 传进来可全片替换配乐。')),
+        '台词/旁白以角色专属音色做后期 ADR；最终 BGM 只由制片统一铺设和混音。角色自定义或克隆音色必须有授权记录。')),
     el('div', { class: 'row' },
       el('button', { class: 'btn primary sm', disabled: !!d.busy, onclick: uploadBgm }, '🎵 上传 BGM'),
+      el('button', { class: 'btn sm', disabled: !!d.busy, onclick: selectLibraryBgm }, '🎼 选择曲库 BGM'),
       bgmBtn(),
       el('button', { class: 'btn sm', disabled: !!d.busy,
         onclick: () => run('dub', { force: true }, '重新配音(重读剧本台词/旁白、重分配音色、重混预览)。') }, '↻ 重新配音'))));
 
   // ---------- BGM ----------
   function bgmBtn() {
-    const has = !!(dub.bgm_override);
+    const has = !!d.bgm;
     return has
       ? el('button', { class: 'btn danger sm', disabled: !!d.busy, onclick: async () => {
-          try { await api.del(`/api/projects/${name}/bgm`); toast('已删除 BGM,恢复视频原声', 'ok'); refresh(); }
+          try { await api.del(`/api/projects/${name}/bgm`); toast('已删除项目 BGM', 'ok'); refresh(); }
           catch (e) { toast(e.message, 'bad'); }
         } }, '🗑 移除 BGM')
       : null;
@@ -35,7 +36,7 @@ export default function render(ctx) {
       title: '上传全片 BGM(可选)',
       body: el('div', {},
         el('div', { class: 'small dim', style: { marginBottom: '10px' } },
-          '替换 Sol-H3 生成音轨:循环铺满全片、响度统一、人声出现处自动压低(侧链)。删除即恢复视频原声。不传则用视频自带配乐(95BPM 音乐块)。'),
+          '上传你拥有使用权的完整 BGM。它只在制片最终混音时循环铺满全片、在人声处自动让路；不再使用逐镜随机配乐。'),
         fi),
       actions: [
         { label: '取消', kind: 'ghost', onclick: c => c() },
@@ -53,6 +54,24 @@ export default function render(ctx) {
         } },
       ],
     });
+  }
+
+  async function selectLibraryBgm() {
+    try {
+      const tracks = (await api.get('/api/music-library')).tracks || [];
+      const approved = tracks.filter(t => t.rights?.approved);
+      if (!approved.length) { toast('曲库暂无已授权曲目；请先登记 catalog.json 和素材文件', 'warn', 6000); return; }
+      const choice = el('select', {});
+      approved.forEach(t => choice.append(el('option', { value: t.id }, `${t.title || t.id} · ${t.bpm || '?'} BPM · ${(t.mood_tags || []).join('/')}`)));
+      modal({ title: '选择已授权 BGM', body: el('div', {},
+        el('p', { class: 'small dim' }, '制片会在最终交付时使用此曲并记录授权台账。'), choice), actions: [
+          { label: '取消', kind: 'ghost', onclick: c => c() },
+          { label: '选用', kind: 'primary', onclick: async c => {
+            try { const r = await api.post(`/api/projects/${name}/bgm/library`, { track_id: choice.value }); c(); toast(`已选择 BGM：${r.bgm.title || choice.value}`, 'ok'); refresh(); }
+            catch (e) { toast(e.message, 'bad'); }
+          } },
+        ] });
+    } catch (e) { toast(e.message, 'bad'); }
   }
 
   if (!d.stages?.dub) {
@@ -105,7 +124,7 @@ export default function render(ctx) {
   } else if (dub.preview_error) {
     box.append(el('div', { class: 'card empty' }, '预览未生成(尚无视频产物):', dub.preview_error));
   }
-  if (dub.bgm_override) box.append(el('div', { class: 'small dim' },
-    '🎵 BGM 替换已启用:', dub.bgm_override));
+  if (d.bgm) box.append(el('div', { class: 'small dim' },
+    `🎵 制片 BGM：${d.bgm.title || d.bgm.file}（${d.bgm.source === 'library' ? '已授权曲库' : '项目上传'}）`));
   return box;
 }
