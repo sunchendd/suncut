@@ -16,3 +16,10 @@ class GenerationFeasibilityTests(unittest.TestCase):
                   "locked_facts": ["A stands still at the window"],
                   "action_en": "A turns toward the window and holds still."}]
         self.assertEqual(lint.lint_generation_feasibility(shots), [])
+
+    def test_rejects_text_screen_and_dense_action_chain(self):
+        shots = [{"id": "q2", "cast": ["A"], "locked_facts": ["A stops"],
+                  "action_en": "A drops a phone, grips a key, sweeps a bag up, turns and steps away."}]
+        issues = lint.lint_generation_feasibility(shots)
+        self.assertTrue(any("手机屏幕" in issue for issue in issues))
+        self.assertTrue(any("可见动作" in issue for issue in issues))

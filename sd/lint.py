@@ -68,6 +68,10 @@ _FRAGILE_PROP_MOTION = re.compile(
     r"\b(?:key|keys|seed|seeds|letter|paper|coin|ring)\b", re.I)
 _SEQUENTIAL_HAND_ACTION = re.compile(
     r"\b(one by one|each seed|inserts? .*turns?|opens? .*steps?|extends? .*returns?)\b", re.I)
+_TEXT_SCREEN_PROP = re.compile(r"\b(demolition notice|notice|phone|screen|answer button)\b", re.I)
+_ACTION_VERB = re.compile(
+    r"\b(slaps?|lifts?|holds?|stares?|freezes?|looks?|drops?|grips?|sweeps?|turns?|"
+    r"steps?|walks?|opens?|closes?|takes?|puts?|ends?|stops?)\b", re.I)
 
 
 def lint_generation_feasibility(shots):
@@ -85,6 +89,11 @@ def lint_generation_feasibility(shots):
             issues.append(f"{sid}: 小道具动画不可稳定验证；改为下一镜展示静态结果")
         if _SEQUENTIAL_HAND_ACTION.search(action):
             issues.append(f"{sid}: 连续手部操作过密；改为一个大动作或空镜结果")
+        if _TEXT_SCREEN_PROP.search(action):
+            issues.append(f"{sid}: 可读纸张/手机屏幕会生成乱码；改成无文字的信封、光线或离屏铃声")
+        verbs = _ACTION_VERB.findall(action)
+        if len(verbs) > 3:
+            issues.append(f"{sid}: 含 {len(verbs)} 个可见动作；每镜最多主动作、次动作、收势共 3 个")
     return issues
 
 
