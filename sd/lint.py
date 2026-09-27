@@ -60,6 +60,33 @@ _STATIC_VERBS = re.compile(r"^\W*(stands?|walks?|sits?|stares?|looks?|gazes?|"
 _BEAT_MARKERS = re.compile(
     r"\b(then|before|after that|next|finally)\b|;\s*she\b|,\s*then\b", re.I)
 
+# Sol-H3 实测高失败组合：双人身份、微小物体动画、逐颗/逐步动作、单镜多结果。
+_FRAGILE_PROP_MOTION = re.compile(
+    r"\b(?:key|keys|seed|seeds|letter|paper|coin|ring)\b[^.]{0,100}"
+    r"\b(?:slides?|spins?|rotates?|falls?|tips?|rolls?|comes to rest)\b"
+    r"|\b(?:slides?|spins?|rotates?|falls?|tips?|rolls?)\b[^.]{0,100}"
+    r"\b(?:key|keys|seed|seeds|letter|paper|coin|ring)\b", re.I)
+_SEQUENTIAL_HAND_ACTION = re.compile(
+    r"\b(one by one|each seed|inserts? .*turns?|opens? .*steps?|extends? .*returns?)\b", re.I)
+
+
+def lint_generation_feasibility(shots):
+    """剧本层的硬可行性门：防止把不可验证的小物体因果塞给单镜生成。"""
+    issues = []
+    for s in shots:
+        sid = s.get("id", "?")
+        if len(s.get("cast") or []) > 1:
+            issues.append(f"{sid}: 单镜双人物会造成身份/肢体融合；拆成单人反应镜")
+        facts = [f for f in s.get("locked_facts") or [] if str(f).strip()]
+        if len(facts) > 1:
+            issues.append(f"{sid}: locked_facts 有 {len(facts)} 条；每镜只保留一个最终可见状态")
+        action = s.get("action_en", "")
+        if _FRAGILE_PROP_MOTION.search(action):
+            issues.append(f"{sid}: 小道具动画不可稳定验证；改为下一镜展示静态结果")
+        if _SEQUENTIAL_HAND_ACTION.search(action):
+            issues.append(f"{sid}: 连续手部操作过密；改为一个大动作或空镜结果")
+    return issues
+
 
 def action_beats(dd):
     """估算动作节点数(过渡标记计数,含最低 1)."""

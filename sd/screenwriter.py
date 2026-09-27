@@ -33,6 +33,9 @@ SYSTEM = """你是短剧编剧。你写的每个字都会被 AI 视频模型逐�
 11. 第 1 镜前 3 秒必须是强钩子(悬念画面/强烈视觉反差/情绪冲击),短视频完播率取决于此
 12. **意象优先**:每镜至少一个可拍视觉记忆点(象征物/光影事件/动作爆发)——从大纲的
     imagery_bank 取材,空泛的"站着感受/望着远方"是废拍
+13. **生成可行性硬闸**:每镜只能有一位可见人物或纯空镜，只有一个叙事道具、一个最终可见
+    结果；locked_facts 最多一条。钥匙/种子/信纸等小物件不得做滑动、旋转、逐颗操作等动画，
+    复杂因果拆到相邻镜，由旁白与剪辑连接。
 """
 
 CRITIC_SYSTEM = ("你是短剧剧本评审。从短视频完播率角度严格打分(0-10):"
@@ -152,8 +155,7 @@ def run(proj, force=False):
 每镜输出:
 - id: "q1".."q{n}"
 - scene: 场景id(S1..)
-- cast: 该镜出场角色,从【演员】的列表里按名字选,**单镜最多 2 人**(能 1 人就 1 人);
-  双人镜一主体动作+另一主体静立,严禁递物/接触交互;纯场景空镜给空数组 [](**全剧最多 1 镜**)
+- cast: 该镜出场角色,从【演员】的列表里按名字选,**每镜只能 1 人**；纯场景空镜给空数组 []
 - shot_function: establish/trigger/escalate/reaction/reveal/decision/aftermath 之一,说明本镜为什么存在
 - edit_duration_s: 1.2~4.9 秒连续值,在观众获得信息/动作峰值/反应落地时切,禁止只填 2.6 或 5.0 两档
 - edit_in_s: 0.0~0.5 秒,生成素材开头预计需要裁掉的稳定期
@@ -161,7 +163,7 @@ def run(proj, force=False):
 - shot_en: 英文,景别+单一连续运镜+central third 构图(竖版安全);相邻镜景别必须跳变
 - action_en: 英文,2-3 个爆发点动作+慢过渡,无手部特写,正脸不说话(台词靠后期配音,画面拍背影/侧脸/远景);双角色镜动作用 "{{名1}}…" "{{名2}}…" 分述;**台词/旁白点名的道具必须在这里出现**
 - performance_beat: 中文一句,目标+阻力+可见微反应;禁止只有“站着不动”
-- locked_facts: 英文数组,逐条写不可改写的“角色名+动作+对象+结果状态”;分镜/重拍必须原样守住
+- locked_facts: 英文数组,只能一条，写不可改写的“最终可见状态”;分镜/重拍必须原样守住
 - emotion_cn: 情绪(中文2-4字)
 - imagery_en: 本镜的视觉记忆点(从意象库取或呼应,英文短语)
 - dialogue_cn: 台词数组(可省略=无台词),如 [{{"who": "{lead_role}", "line": "≤18字台词"}}];
@@ -204,6 +206,7 @@ def run(proj, force=False):
             issues.append(f"{sid}: 说了『{'、'.join(miss)}』但 action_en 没拍到(说的必须拍到)")
         for sid, why in lint.lint_adjacent(shots):
             issues.append(f"{sid}: {why}(相邻镜去重)")
+        issues.extend(lint.lint_generation_feasibility(shots))
         return issues
     fw_issues = _fw_lints(data["shots"])
     if fw_issues:
@@ -231,7 +234,7 @@ def run(proj, force=False):
         names = s.get("cast", None)
         if names is None:
             names = [cast_names[0]]       # 缺省=主角单人镜
-        names = names[:2]
+        names = names[:1]
         role2char = {r["story_role"]: r["char"] for r in cast["cast"]}
         names = [role2char.get(x, x) for x in names]   # LLM 误用 story_role 时映射回 char
         if not names:
@@ -274,6 +277,9 @@ def run(proj, force=False):
         s.setdefault("performance_beat", "一个主动作后出现可见微反应")
         facts = [str(x).strip() for x in (s.get("locked_facts") or []) if str(x).strip()]
         s["locked_facts"] = facts or [s["action_en"].strip()]
+    feasibility = lint.lint_generation_feasibility(shots)
+    if feasibility:
+        raise ValueError("剧本未通过生成可行性门，拒绝进入耗时生成:\n- " + "\n- ".join(feasibility))
     data["shot_ids"] = [s["id"] for s in shots]
     _write_srt(proj, data)
     proj.save_stage("script", data, meta={"shots": n, "title": data.get("title_cn", "")})

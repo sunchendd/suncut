@@ -13,8 +13,8 @@ SKILLS_DIR = config.FRAMEWORK_ROOT / "agent_skills"
 AGENT_SKILLS = {
     "casting": ("casting-continuity",),
     "materials": ("production-design",),
-    "screenwriter": ("short-drama-writing", "editing-rhythm"),
-    "storyboard": ("cinematic-direction", "performance-direction", "story-continuity"),
+    "screenwriter": ("short-drama-writing", "editing-rhythm", "generation-feasibility"),
+    "storyboard": ("cinematic-direction", "performance-direction", "story-continuity", "generation-feasibility"),
     "director": ("performance-direction", "story-continuity"),
     "reviewer": ("generated-media-qa", "short-drama-analysis", "story-continuity"),
     "dubbing": ("dialogue-performance", "sound-design"),
@@ -42,4 +42,3 @@ def prompt_for(agent):
 def inventory():
     """供 doctor/UI 展示当前八 agent 的技能绑定。"""
     return {agent: list(names) for agent, names in AGENT_SKILLS.items()}
-
