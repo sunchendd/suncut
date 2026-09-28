@@ -43,13 +43,13 @@ RETAKE_SEED_STEP = 1009                       # 单镜重拍换 seed 的步长(�
 # 可用 SD_MIN_INFER_HEADROOM_GB 覆盖，适配不同模型包与常驻服务。
 MIN_INFER_HEADROOM_GB = float(os.environ.get("SD_MIN_INFER_HEADROOM_GB", "48"))
 
-# ── 交付端:横竖屏与分辨率(生成端固定 1344x768,裁切/缩放在交付时做) ──
+# ── 交付端:只支持横屏16:9(生成端固定 1344x768，禁止竖裁切损失主体与清晰度) ──
 RESOLUTIONS = {                               # name -> (横屏WxH, 竖屏WxH)
     "1080p": ((1920, 1080), (1080, 1920)),
     "720p": ((1280, 720), (720, 1280)),
     "480p": ((854, 480), (480, 854)),
 }
-ORIENTATIONS = ("portrait", "landscape")      # 缺省 landscape(竖版=16:9中心裁切再放大,清晰度降太多,2026-09-25 定)
+ORIENTATIONS = ("landscape",)
 
 # ── 配音(edge-tts;智谱 cogtts 在 Coding Plan 外需充值,故走本地免费链) ──
 EDGE_TTS = HOME / "venvs/sdapi/bin/edge-tts"  # 回退: PATH 里的 edge-tts

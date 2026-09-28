@@ -26,7 +26,7 @@ def main(argv=None):
     p.add_argument("--brief", required=True, help="故事梗概/一句话")
     p.add_argument("--shots", type=int, default=4)
     p.add_argument("--orientation", default="landscape",
-                   choices=list(config.ORIENTATIONS), help="landscape横屏16:9(默认) | portrait竖屏9:16(裁切,清晰度降)")
+                   choices=list(config.ORIENTATIONS), help="仅支持 landscape 横屏16:9(原生画质)")
     p.add_argument("--resolution", default="1080p",
                    choices=list(config.RESOLUTIONS), help="交付分辨率")
 

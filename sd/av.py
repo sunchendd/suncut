@@ -129,18 +129,15 @@ def look_vf():
 
 
 def orient_vf(w, h, orientation, look=True):
-    """裁切/缩放 + 色调链(+轻锐化);生成端 1344x768 / 母版 1920x1080 同比安全(9:16=0.5625).
+    """横屏缩放 + 色调链(+轻锐化)。
 
     look=False: 母版链的烧字幕等再编码场景(色调已烤进 master 条,防二次叠加).
     日常档走纯 lanczos 拉伸偏软,故保留轻 cas;母版档(SPAN)经 look_vf 烤入,不再锐化.
     """
-    vf = []
-    if orientation == "portrait":
-        vf.append("crop=w='min(iw,ih*0.5625)':h=ih:x='(iw-ow)/2':y=0")
-        vf.append(f"scale={w}:{h}:flags=lanczos")
-    else:
-        vf.append(f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos")
-        vf.append(f"crop={w}:{h}")
+    if orientation != "landscape":
+        raise ValueError("仅支持横屏 16:9 交付")
+    vf = [f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos",
+          f"crop={w}:{h}"]
     if look:
         lut = lut3d_filter()
         if lut:

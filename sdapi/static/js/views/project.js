@@ -130,27 +130,24 @@ export default async function render(root, name) {
     tabBox.append(node);
   }
 
-  // ---------- 项目设置(横竖屏/分辨率) ----------
+  // ---------- 项目设置(横屏/分辨率) ----------
   const editSettings = () => {
     const cur = d.settings || { orientation: 'landscape', resolution: '1080p' };
-    const ori = el('select', {},
-      el('option', { value: 'landscape', selected: cur.orientation === 'landscape' ? '' : null }, '横屏 16:9(推荐·原生画质)'),
-      el('option', { value: 'portrait', selected: cur.orientation === 'portrait' ? '' : null }, '竖屏 9:16(裁切·清晰度降)'));
     const res = el('select', {},
       ...['1080p', '720p', '480p'].map(r => el('option', { value: r, selected: cur.resolution === r ? '' : null }, r)));
     modal({
-      title: '视频设置(横竖屏 / 分辨率)',
+      title: '视频设置(横屏 / 分辨率)',
       body: el('div', {},
         el('div', { class: 'small dim', style: { marginBottom: '10px' } },
-          '生成端固定 1344×768;横屏=直出 16:9(原生画质,默认);竖屏=中心裁切 9:16 再放大,宽度仅用画幅 1/3,清晰度明显下降。分镜与审片的构图要求会自动跟随。'),
-        el('label', { class: 'field' }, el('span', {}, '画幅'), ori),
+          '生成端固定 1344×768；工坊固定横屏 16:9 直出，禁止中心裁切成竖屏，以保留人物、构图和清晰度。'),
+        el('div', { class: 'small dim', style: { marginBottom: '10px' } }, '画幅：横屏 16:9（固定）'),
         el('label', { class: 'field' }, el('span', {}, '分辨率'), res)),
       actions: [
         { label: '取消', kind: 'ghost', onclick: c => c() },
         { label: '保存', kind: 'primary', onclick: async c => {
           try {
             const r = await api.post(`/api/projects/${name}/settings`,
-              { orientation: ori.value, resolution: res.value });
+              { orientation: 'landscape', resolution: res.value });
             c(); toast(r.warning ? `已保存 —— ${r.warning}` : '设置已保存', r.warning ? 'warn' : 'ok');
             refresh();
           } catch (e) { toast(e.message, 'bad'); }

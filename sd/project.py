@@ -17,7 +17,7 @@ class Project:
         (self.path / "brief.txt").write_text(brief.strip() + "\n")
         st = {"name": self.name, "created": time.strftime("%F %T"),
               "shots": shots,
-              "orientation": orientation if orientation in config.ORIENTATIONS else "landscape",
+              "orientation": "landscape",
               "resolution": resolution if resolution in config.RESOLUTIONS else "1080p",
               "stages": {}}
         self._write_state(st)
@@ -34,18 +34,19 @@ class Project:
     def _write_state(self, st):
         self.state_file.write_text(json.dumps(st, ensure_ascii=False, indent=1))
 
-    # ---------- 交付设置(横竖屏/分辨率) ----------
+    # ---------- 交付设置(横屏/分辨率) ----------
     def settings(self):
         st = self.load_state()
-        return {"orientation": st.get("orientation", "landscape"),
+        return {"orientation": "landscape",
                 "resolution": st.get("resolution", "1080p"),
                 # 框架升级: 场景锚定链(每场景首镜用锚定图 first-frame),项目级 opt-in
                 "anchor_chain": bool(st.get("anchor_chain", False))}
 
     def update_settings(self, orientation=None, resolution=None):
         st = self.load_state()
-        if orientation in config.ORIENTATIONS:
-            st["orientation"] = orientation
+        if orientation is not None and orientation != "landscape":
+            raise ValueError("短剧工坊仅支持横屏 16:9；竖屏裁切会损失主体和清晰度")
+        st["orientation"] = "landscape"
         if resolution in config.RESOLUTIONS:
             st["resolution"] = resolution
         self._write_state(st)

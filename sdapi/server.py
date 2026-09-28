@@ -71,7 +71,7 @@ class NewProject(BaseModel):
     name: str
     brief: str
     shots: int = 4
-    orientation: str = "landscape"     # portrait | landscape(默认横屏:竖版裁切损失大)
+    orientation: str = "landscape"     # 仅 landscape；生成端原生 16:9
     resolution: str = "1080p"          # 1080p | 720p | 480p
 
 

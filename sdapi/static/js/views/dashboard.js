@@ -18,9 +18,6 @@ export function newProjectModal() {
   const name = el('input', { type: 'text', placeholder: '英文/拼音,如 yedeng(唯一人工输入的名字)' });
   const brief = el('textarea', { placeholder: '一句话故事梗概。例:雨夜便利店的女孩,用便利贴回复每晚匿名留言的常客,直到最后一晚纸条上写着告别。' });
   const shots = el('input', { type: 'number', value: '4', min: '1', max: '12' });
-  const ori = el('select', {},
-    el('option', { value: 'landscape', selected: '' }, '横屏 16:9(推荐·原生画质)'),
-    el('option', { value: 'portrait' }, '竖屏 9:16(裁切·清晰度降)'));
   const res = el('select', {},
     el('option', { value: '1080p', selected: '' }, '1080p'),
     el('option', { value: '720p' }, '720p(更快更小)'),
@@ -31,7 +28,7 @@ export function newProjectModal() {
       el('label', { class: 'field' }, el('span', {}, '项目名'), name),
       el('label', { class: 'field' }, el('span', {}, '故事梗概(一句话,决定全片基调)'), brief),
       el('div', { class: 'row' },
-        el('label', { class: 'field', style: { flex: '1' } }, el('span', {}, '画幅'), ori),
+        el('div', { class: 'field', style: { flex: '1' } }, el('span', {}, '画幅'), el('div', { class: 'small dim' }, '固定横屏 16:9（原生画质）')),
         el('label', { class: 'field', style: { flex: '1' } }, el('span', {}, '分辨率'), res),
         el('label', { class: 'field', style: { width: '110px' } }, el('span', {}, '镜头数(1镜≈5s)'), shots))),
     actions: [
@@ -39,7 +36,7 @@ export function newProjectModal() {
       {
         label: '创建', kind: 'primary', onclick: async (c) => {
           try {
-            await api.post('/api/projects', { name: name.value.trim(), brief: brief.value, shots: +shots.value, orientation: ori.value, resolution: res.value });
+            await api.post('/api/projects', { name: name.value.trim(), brief: brief.value, shots: +shots.value, orientation: 'landscape', resolution: res.value });
             c(); toast(`项目 ${name.value.trim()} 已创建`, 'ok');
             location.hash = `#/project/${name.value.trim()}`;
           } catch (e) { toast(e.message, 'bad'); }
