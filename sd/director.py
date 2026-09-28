@@ -8,7 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from . import config, creative_skills, llm
+from . import config, creative_skills, llm, runtime_guard
 from .lint import lint_dd, violations_feedback
 from .storyboard import story_contract_hash
 
@@ -103,6 +103,7 @@ def _rewrite_for_retake(row, advice, review=None):
 
 
 def _run_infer(rows, outdir, log_path, timeout=7200, first_frame=None):
+    runtime_guard.assert_can_start()
     jf = outdir.with_suffix(".jsonl")
     jf.parent.mkdir(parents=True, exist_ok=True)
     jf.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")

@@ -39,6 +39,10 @@ SHORT_TRIM = 2.6                              # duration_hint=short 的镜在剪
 CHAR_SEED_BASE = 42
 RETAKE_SEED_STEP = 1009                       # 单镜重拍换 seed 的步长(质数,避免撞)
 
+# DGX Spark 的 CPU、GPU、系统服务共享统一内存。预留足够余量比盲目并行更可靠；
+# 可用 SD_MIN_INFER_HEADROOM_GB 覆盖，适配不同模型包与常驻服务。
+MIN_INFER_HEADROOM_GB = float(os.environ.get("SD_MIN_INFER_HEADROOM_GB", "48"))
+
 # ── 交付端:横竖屏与分辨率(生成端固定 1344x768,裁切/缩放在交付时做) ──
 RESOLUTIONS = {                               # name -> (横屏WxH, 竖屏WxH)
     "1080p": ((1920, 1080), (1080, 1920)),
