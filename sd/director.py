@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import config, creative_skills, llm
 from .lint import lint_dd, violations_feedback
+from .storyboard import story_contract_hash
 
 MP4_REL = "stage2/refined_1344x768_121f.mp4"
 
@@ -36,6 +37,69 @@ REWRITE_SYSTEM = ("你是导演执行重拍修订。只改 detailed_description 
                   "场景与原意不变、locked_story_facts 一条也不得改变、英文一段。"
                   "加入有目的的呼吸/视线/重心微反应，禁止 cinematic still 和匀速僵立。只输出 JSON。"
                   "\n\n" + creative_skills.prompt_for("director"))
+
+
+def _retake_plan(row, advice="", review=None):
+    """把模糊审片意见转成可记录的镜头合同，避免同一失败被原样再试。"""
+    review = review or {}
+    facts = [str(x) for x in row.get("locked_facts", []) if str(x).strip()]
+    priorities, prohibitions = [], []
+    if review.get("text_artifacts") is True:
+        priorities.append("remove readable markings from every visible prop")
+        prohibitions.append("no readable text, label, symbol, UI, or writing")
+    if review.get("story_facts", 10) < 8:
+        priorities.append("make the one locked story fact visible without competing props")
+    if review.get("identity", 10) < review.get("identity_threshold", 7):
+        priorities.append("preserve the reference face, wardrobe, and body silhouette")
+    if review.get("motion_naturalness", 10) < 7:
+        priorities.append("show one causal movement with visible acceleration and settling")
+    if review.get("performance", 10) < 7:
+        priorities.append("show one readable breath, gaze shift, or weight transfer")
+    if not priorities:
+        priorities.append("apply the reviewer advice while keeping the shot contract")
+    return {
+        "immutable_facts": facts,
+        "priorities": priorities,
+        "prohibitions": prohibitions,
+        "reviewer_advice": (advice or "").strip(),
+    }
+
+
+def _assert_storyboard_current(proj, case_id, row):
+    """不允许剧本已改、分镜未重建时继续重拍旧提示。"""
+    sid = case_id.removeprefix(f"{proj.name}-")
+    script = proj.load_stage("script") or {}
+    shot = next((s for s in script.get("shots", []) if s.get("id") == sid), None)
+    if not shot:
+        raise RuntimeError(f"剧本中找不到镜头 {sid}，不能重拍")
+    expected = story_contract_hash(shot)
+    if row.get("story_contract_hash") != expected:
+        raise RuntimeError(
+            f"镜头 {case_id} 的剧本合同已变化，禁止用旧分镜重拍；"
+            "请先运行 storyboard --force，再开始重拍。")
+
+
+def _rewrite_for_retake(row, advice, review=None):
+    """把锁定事实和失败类型交给重写 agent，而不是只丢一句自由文本建议。"""
+    dd = row.get("dd") or _dd_of(row["prompt"])
+    plan = _retake_plan(row, advice, review)
+    contract = json.dumps(plan, ensure_ascii=False, indent=2)
+    user = (f"【原 detailed_description】\n{dd}\n\n"
+            f"【不可改变的重拍合同】\n{contract}\n\n"
+            "immutable_facts 必须以清楚的最终画面状态呈现；"
+            "priorities 只挑最少的必要画面证据落实，不能新增道具或事件。\n"
+            '只输出 JSON: {"detailed_description": "修订后的英文一段"}')
+    fixed = llm.chat_json(config.LLM_TEXT, REWRITE_SYSTEM, user)
+    dd_new = fixed["detailed_description"].strip()
+    hits = lint_dd(dd_new)
+    if hits:
+        fixed = llm.chat_json(config.LLM_TEXT, REWRITE_SYSTEM,
+                              user + "\n\n【你的修订违规了，必须消除】\n" +
+                              violations_feedback(hits))
+        dd_new = fixed["detailed_description"].strip()
+    if "<Subject 1>" not in dd_new and row.get("cast"):
+        dd_new = "<Subject 1> " + dd_new
+    return dd_new, plan
 
 
 def _run_infer(rows, outdir, log_path, timeout=7200, first_frame=None):
@@ -169,34 +233,28 @@ def shoot(proj, force=False):
     return videos
 
 
-def retake(proj, case_id, advice="", force=False):
+def retake(proj, case_id, advice="", force=False, review=None):
     """单镜重拍 v2: 审片建议改写 dd(带 lint 闸) + 换 seed;无建议时仅换 seed."""
     sb = proj.load_stage("storyboard")
     rows = {r["case_id"]: r for r in (json.loads(l) for l in open(sb["jsonl"]))}
+    if case_id not in rows and f"{proj.name}-{case_id}" in rows:
+        case_id = f"{proj.name}-{case_id}"
     if case_id not in rows:
         raise KeyError(f"没有镜头 {case_id}")
     state = proj.load_state()
     takes = state.get("takes", {}).get(case_id, [])
     new_seed = rows[case_id]["seed"] + config.RETAKE_SEED_STEP * (len(takes) + 1)
     row = dict(rows[case_id])
+    _assert_storyboard_current(proj, case_id, row)
     row["seed"] = new_seed
 
     if advice:
-        dd = row.get("dd") or _dd_of(row["prompt"])
-        user = (f"【原 detailed_description】\n{dd}\n\n【审片建议(必须落实)】\n{advice}\n\n"
-                '只输出 JSON: {"detailed_description": "修订后的英文一段"}')
-        fixed = llm.chat_json(config.LLM_TEXT, REWRITE_SYSTEM, user)
-        dd_new = fixed["detailed_description"].strip()
-        hits = lint_dd(dd_new)
-        if hits:   # 修订稿违规 → 再修一轮
-            fixed = llm.chat_json(config.LLM_TEXT, REWRITE_SYSTEM,
-                                  user + "\n\n【你的修订违规了,必须消除】\n" + violations_feedback(hits))
-            dd_new = fixed["detailed_description"].strip()
-        if "<Subject 1>" not in dd_new:
-            dd_new = "<Subject 1> " + dd_new
+        dd_new, plan = _rewrite_for_retake(row, advice, review)
         row["prompt"] = _rebuild_prompt(row["prompt"], dd_new)
         row["dd"] = dd_new
         row["note"] = f"{row['note']} | 重拍v2({advice[:40]})"
+    else:
+        plan = _retake_plan(row, review=review)
 
     attempt = f"r{len(takes) + 1}"
     root = config.SD_RUNTIME / proj.name / f"gen-{case_id.split('-')[-1]}-{attempt}"
@@ -214,7 +272,9 @@ def retake(proj, case_id, advice="", force=False):
             break
     if not mp4:
         raise RuntimeError(f"重拍三次均未产出(末次退出码{code},日志 {log})")
-    takes.append({"seed": new_seed, "mp4": mp4, "advice": advice})
+    takes.append({"seed": new_seed, "mp4": mp4, "advice": advice,
+                  "retake_plan": plan,
+                  "story_contract_hash": row["story_contract_hash"]})
     state.setdefault("takes", {})[case_id] = takes
     state["stages"].pop("review", None)   # 视频变了,旧审片作废
     proj._write_state(state)

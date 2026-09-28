@@ -3,13 +3,14 @@ import json
 import subprocess
 from pathlib import Path
 
-from . import config, creative_skills, llm, quality
+from . import config, creative_skills, llm, motionqc, quality
 
 PROMPT_TMPL = """{refs_desc}后7张按时间顺序覆盖同一镜头从开头到结尾({orient_note})。
 必须把它们当成连续动作判断，不能因为某一张构图漂亮就忽略前后矛盾。
 
 【不可改写故事事实】{locked_facts}
 【该镜执行描述】{dd}
+{motion_note}
 
 评审(只输出 JSON;空镜镜 identity 固定给 10):
 {{"identity": 0-10, "story_facts": 0-10, "action": 0-10, "composition": 0-10,
@@ -20,6 +21,9 @@ PROMPT_TMPL = """{refs_desc}后7张按时间顺序覆盖同一镜头从开头到
  "advice_cn": "不通过时同时指出事实/动态/表演中最关键的问题和可执行修法;通过则空串"}}
 
 {qa_skill}"""
+
+MOTION_NOTE = ("\n【客观运动指标（帧差统计）】{}\n"
+               "cv<0.12 表示匀速恒幅，常带来机械感；near_static 高表示大段死帧。\n")
 
 
 def orient_note_of(proj):
@@ -110,6 +114,12 @@ def review(proj, force=False):
         if abs(tech["duration"] - config.SHOT_SECONDS) > 0.5 or not tech["has_audio"]:
             return {"case": case, "video": video, "tech": tech, "verdict": "fail",
                     "advice": "技术指标异常(时长/音轨)"}
+        intent = shot.get("shot_en", "") + " " + shot.get("action_en", "")
+        metrics = motionqc.analyze(video)
+        if motionqc.hard_failure(metrics, intent):
+            return {"case": case, "video": video, "tech": tech,
+                    "motion_metrics": metrics, "verdict": "fail",
+                    "advice_cn": "；".join(motionqc.flags(metrics, intent)) or "画面近乎静止"}
         frames = _frames(video, out_dir, case)
         if len(frames) < 7:
             return {"case": case, "video": video, "tech": tech, "verdict": "fail", "advice": "抽帧失败"}
@@ -122,9 +132,14 @@ def review(proj, force=False):
                      f"顺序对应镜中 Subject 编号)," if ref_imgs else "本镜是无人物空镜,")
         orient_note = orient_note_of(proj)
         locked_facts = shot.get("locked_facts") or [shot.get("action_en", "")]
+        motion_note = ""
+        if metrics:
+            motion_note = MOTION_NOTE.format(
+                f"mean={metrics['mean_diff']} cv={metrics['motion_cv']} "
+                f"center/edge={metrics['center_edge']} near_static={metrics['near_static_pct']}%")
         text = PROMPT_TMPL.format(refs_desc=refs_desc, orient_note=orient_note,
                                   locked_facts=json.dumps(locked_facts, ensure_ascii=False),
-                                  dd=dd_full,
+                                  dd=dd_full, motion_note=motion_note,
                                   qa_skill=creative_skills.prompt_for("reviewer"))
         try:
             # 双次评审取均值(单次 VLM 打分噪声大,同视频可差 ±4)
@@ -154,6 +169,14 @@ def review(proj, force=False):
             start, end = 0.15, 4.85
         v["usable_in_s"], v["usable_out_s"] = round(start, 2), round(end, 2)
         v["verdict"] = "pass" if v["pass"] else "retake"
+        if metrics:
+            v["motion_metrics"] = metrics
+            if motionqc.allows_low_motion(intent):
+                v["motion_gate"] = "vision_review_required"
+            flags = motionqc.flags(metrics, intent)
+            v["motion_flags"] = flags
+            if flags and v["verdict"] == "retake" and not (v.get("advice_cn") or "").strip():
+                v["advice_cn"] = "；".join(flags)
         return v
 
     results = [None] * len(script["shots"])

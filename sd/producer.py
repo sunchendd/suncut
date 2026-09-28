@@ -53,7 +53,8 @@ def produce(name, auto_retake=True, force_stage=None):
                       f"{r.get('advice_cn') or r.get('advice', '')}")
                 try:
                     with stopwatch(proj, "retake"):
-                        director.retake(proj, r["case"], advice=r.get("advice_cn", ""))
+                        director.retake(proj, r["case"], advice=r.get("advice_cn", ""),
+                                        review=r)
                 except Exception as e:
                     # 单镜基础设施失败不能吞掉其它重拍；下一轮会继续尝试该镜。
                     retake_errors.append({"round": round_i, "case": r["case"], "error": str(e)})

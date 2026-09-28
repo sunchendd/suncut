@@ -5,11 +5,25 @@ subject_definitions(角色DNA)与 non_diegetic_music(音乐块)由程序逐字�
 从根上杜绝 LLM"好心改写"DNA 导致的跨镜换脸(桌面工作流 §4.2 第一条审稿项)。
 """
 import json
+import hashlib
 import shutil
 from pathlib import Path
 
 from . import config, creative_skills, llm
 from . import lint
+
+
+def story_contract_hash(shot):
+    """锁住重拍不能擅自改变的剧本合同。"""
+    contract = {
+        "id": shot.get("id", ""),
+        "cast": shot.get("cast") or [],
+        "action_en": shot.get("action_en", ""),
+        "locked_facts": shot.get("locked_facts") or [],
+    }
+    payload = json.dumps(contract, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 SYSTEM = ("你是分镜师。把剧本每镜扩写成 ref2va 的 detailed_description(英文一段),"
           "遵守: 单一连续运镜、**1 个主爆发动作+最多 1 个次要节点+收势(共≤3 节点,"
@@ -122,6 +136,7 @@ def run(proj, force=False):
                 "cut_intent": s.get("cut_intent", ""),
                 "shot_function": s.get("shot_function", ""),
                 "locked_facts": locked_facts,
+                "story_contract_hash": story_contract_hash(s),
                 "soundscape": dd_by[s["id"]]["overall_soundscape"],
                 "cast": [],
             }
@@ -152,6 +167,7 @@ def run(proj, force=False):
             "cut_intent": s.get("cut_intent", ""),
             "shot_function": s.get("shot_function", ""),
             "locked_facts": locked_facts,
+            "story_contract_hash": story_contract_hash(s),
             "soundscape": dd_by[s["id"]]["overall_soundscape"],
             "cast": [p["name"] for p in in_shot],
         }
